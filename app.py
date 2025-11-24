@@ -14,10 +14,19 @@ st.set_page_config(page_title="Jugnoo CRM", page_icon="🏗️", layout="wide")
 
 st.markdown("""
     <style>
+    /* 1. Fix White Bars on Mobile (Force Dark Theme) */
+    .stApp {
+        background-color: #0E1117;
+    }
+    header[data-testid="stHeader"] {
+        background-color: #0E1117;
+    }
+    
+    /* 2. Hide Streamlit Elements */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    header {visibility: hidden;}
     
+    /* 3. Dark Mode Metric Cards */
     [data-testid="stMetric"] {
         background-color: #262730;
         border: 1px solid #464b5f;
@@ -43,7 +52,7 @@ supabase = init_connection()
 # ---------------------------
 # 2. AUTHENTICATION (COOKIES)
 # ---------------------------
-# FIX: Removed @st.cache_resource (Widgets cannot be cached)
+# Removed @st.cache_resource as widgets cannot be cached
 def get_manager():
     return stx.CookieManager(key="auth_cookie_manager")
 
@@ -59,21 +68,17 @@ def check_login(username, password):
 def login_section():
     st.title("🔒 Jugnoo CRM")
     
-    # 1. Check Cookie
-    time.sleep(0.1) # Allow component to mount
+    time.sleep(0.1) 
     cookie_user = cookie_manager.get(cookie="jugnoo_user")
     
-    # 2. Auto-Login
     if cookie_user:
         st.session_state.logged_in = True
         st.session_state.username = cookie_user
         return 
 
-    # 3. Session Check
     if st.session_state.get('logged_in'):
         return
 
-    # 4. Login Form
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         with st.form("login"):
@@ -85,11 +90,8 @@ def login_section():
                 if check_login(user, pwd):
                     st.session_state.logged_in = True
                     st.session_state.username = user
-                    
-                    # Set Cookie (7 Days)
                     expires = datetime.now() + timedelta(days=7)
                     cookie_manager.set("jugnoo_user", user, expires_at=expires)
-                    
                     st.success("Login Successful!")
                     time.sleep(0.5)
                     st.rerun()
@@ -97,7 +99,6 @@ def login_section():
                     st.error("Invalid Credentials")
     st.stop()
 
-# Run Login Check
 login_section()
 
 # ---------------------------
@@ -187,24 +188,20 @@ with tab1:
             
             with col_details:
                 st.write("**Edit Details**")
-                
-                # GPS Button for Dashboard
                 if st.toggle("Show GPS Button", key="tgl_dash"):
                     gps_dash = get_geolocation(component_key=f"gps_{client['id']}")
                     if gps_dash:
                         lat_d = gps_dash['coords']['latitude']
                         long_d = gps_dash['coords']['longitude']
                         st.session_state[f"loc_{client['id']}"] = f"http://googleusercontent.com/maps.google.com/?q={lat_d},{long_d}"
-                        st.info("Location received! Check the Maps Link field below.")
+                        st.info("Location received!")
 
                 with st.form("edit_client_details"):
                     new_name = st.text_input("Name", value=client['name'])
                     new_phone = st.text_input("Phone", value=client.get('phone', ''))
                     new_addr = st.text_area("Address", value=client.get('address', ''))
-                    
                     current_loc = st.session_state.get(f"loc_{client['id']}", client.get('location', ''))
-                    new_loc = st.text_input("Maps Link (Click GPS above to fill)", value=current_loc)
-                    
+                    new_loc = st.text_input("Maps Link", value=current_loc)
                     if st.form_submit_button("💾 Save Changes"):
                         run_query(supabase.table("clients").update({
                             "name": new_name, "phone": new_phone, "address": new_addr, "location": new_loc
@@ -216,10 +213,8 @@ with tab1:
             with col_status:
                 st.write("**Project Status**")
                 status_options = ["Estimate Given", "Order Received", "Work In Progress", "Work Done", "Closed"]
-                try:
-                    curr_idx = status_options.index(client.get('status'))
-                except:
-                    curr_idx = 0
+                try: curr_idx = status_options.index(client.get('status'))
+                except: curr_idx = 0
                 
                 new_status = st.selectbox("Update Status", status_options, index=curr_idx, key=f"st_{client['id']}")
                 
@@ -234,14 +229,13 @@ with tab1:
 
                 if st.button("Update Status", key=f"btn_st_{client['id']}"):
                     updates = {"status": new_status}
-                    if start_date_val:
-                        updates["start_date"] = start_date_val.isoformat()
-                        
+                    if start_date_val: updates["start_date"] = start_date_val.isoformat()
                     run_query(supabase.table("clients").update(updates).eq("id", client['id']))
                     st.success("Status Updated!")
                     time.sleep(0.5)
                     st.rerun()
 
+            # --- DASHBOARD ESTIMATE VIEW ---
             if client.get('internal_estimate'):
                 st.divider()
                 st.subheader("📄 Saved Estimate")
@@ -258,7 +252,6 @@ with tab1:
                 
                 if saved_items:
                     items_df = pd.DataFrame(saved_items)
-                    
                     if "Total Price" not in items_df.columns and "Total (Internal)" in items_df.columns:
                          items_df["Total Price"] = items_df["Total (Internal)"]
                     
@@ -276,11 +269,14 @@ with tab1:
                         m3.metric("Grand Total", f"₹{grand_total:,.0f}")
                         
                         pdf_bytes = create_pdf(client['name'], saved_items, saved_days, labor_total, grand_total)
+                        
+                        # FIX: UNIQUE KEY ADDED HERE
                         st.download_button(
                             label="📄 Download PDF",
                             data=pdf_bytes,
                             file_name=f"Estimate_{client['name']}.pdf",
-                            mime="application/pdf"
+                            mime="application/pdf",
+                            key=f"pdf_dash_{client['id']}"
                         )
                 else:
                     st.warning("Estimate data appears empty.")
@@ -294,7 +290,7 @@ with tab2:
         if loc_button:
             lat = loc_button['coords']['latitude']
             long = loc_button['coords']['longitude']
-            st.session_state['new_loc_val'] = f"https://maps.google.com/?q={lat},{long}"
+            st.session_state['new_loc_val'] = f"http://googleusercontent.com/maps.google.com/?q={lat},{long}"
             st.success("Location Captured! See field below.")
 
     with st.form("add_client_form"):
@@ -402,7 +398,7 @@ with tab3:
                 st.toast("Saved!", icon="✅")
             
             pdf_bytes = create_pdf(target_client_name, current_items, days_to_complete, labor_client, grand_total)
-            col_pdf.download_button("📄 Download PDF", data=pdf_bytes, file_name=f"Estimate_{target_client_name}.pdf", mime="application/pdf")
+            col_pdf.download_button("📄 Download PDF", data=pdf_bytes, file_name=f"Estimate_{target_client_name}.pdf", mime="application/pdf", key=f"pdf_est_{target_client['id']}")
 
 # --- TAB 4: SETTINGS ---
 with tab4:
