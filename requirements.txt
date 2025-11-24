@@ -5,3 +5,4 @@ geopy
 psycopg2-binary
 fpdf
 streamlit-js-eval
+extra-streamlit-components

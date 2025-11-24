@@ -5,6 +5,7 @@ from datetime import datetime
 import time
 from fpdf import FPDF
 from streamlit_js_eval import get_geolocation
+import extra_streamlit_components as stx
 
 # ---------------------------
 # 1. SETUP & CONNECTION
@@ -17,7 +18,6 @@ st.markdown("""
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Dark Mode Metric Cards */
     [data-testid="stMetric"] {
         background-color: #262730;
         border: 1px solid #464b5f;
@@ -41,8 +41,13 @@ def init_connection():
 supabase = init_connection()
 
 # ---------------------------
-# 2. HELPER FUNCTIONS
+# 2. AUTHENTICATION (COOKIES)
 # ---------------------------
+def get_manager():
+    return stx.CookieManager()
+
+cookie_manager = get_manager()
+
 def check_login(username, password):
     try:
         res = supabase.table("users").select("*").eq("username", username).eq("password", password).execute()
@@ -50,6 +55,44 @@ def check_login(username, password):
     except:
         return False
 
+def login_section():
+    st.title("🔒 Jugnoo CRM")
+    
+    # Check if cookie exists
+    cookie_user = cookie_manager.get(cookie="jugnoo_user")
+    
+    # If cookie exists, auto-login
+    if cookie_user and not st.session_state.get('logged_in'):
+        st.session_state.logged_in = True
+        st.session_state.username = cookie_user
+        return
+
+    if st.session_state.get('logged_in'):
+        return
+
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
+        with st.form("login"):
+            st.subheader("Sign In")
+            user = st.text_input("Username")
+            pwd = st.text_input("Password", type="password")
+            if st.form_submit_button("Login", type="primary"):
+                if check_login(user, pwd):
+                    st.session_state.logged_in = True
+                    st.session_state.username = user
+                    # Set Cookie (Expires in 7 days)
+                    cookie_manager.set("jugnoo_user", user, expires_at=datetime.now().timestamp() + 604800)
+                    st.rerun()
+                else:
+                    st.error("Invalid Credentials")
+    st.stop()
+
+# CALL LOGIN LOGIC BEFORE APP
+login_section()
+
+# ---------------------------
+# 3. HELPER FUNCTIONS
+# ---------------------------
 def run_query(query_func):
     try:
         return query_func.execute()
@@ -77,20 +120,17 @@ def create_pdf(client_name, items, labor_days, labor_total, grand_total):
     pdf.cell(0, 10, f"Client: {client_name}", ln=True)
     pdf.cell(0, 10, f"Date: {datetime.now().strftime('%Y-%m-%d')}", ln=True)
     pdf.ln(5)
-    # Header
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(100, 10, "Item", 1)
     pdf.cell(30, 10, "Qty", 1)
     pdf.cell(60, 10, "Amount", 1)
     pdf.ln()
-    # Items
     pdf.set_font("Arial", '', 12)
     for item in items:
         pdf.cell(100, 10, str(item['Item']), 1)
         pdf.cell(30, 10, str(item['Qty']), 1)
         pdf.cell(60, 10, f"{item['Total Price']:.2f}", 1)
         pdf.ln()
-    # Totals
     pdf.ln(5)
     pdf.cell(130, 10, f"Labor / Installation ({labor_days} Days)", 1)
     pdf.cell(60, 10, f"{labor_total:.2f}", 1)
@@ -101,58 +141,31 @@ def create_pdf(client_name, items, labor_days, labor_total, grand_total):
     return pdf.output(dest='S').encode('latin-1')
 
 # ---------------------------
-# 3. LOGIN LOGIC
-# ---------------------------
-def login_page():
-    st.title("🔒 Jugnoo CRM Login")
-    if "logged_in" not in st.session_state: st.session_state.logged_in = False
-    if st.session_state.logged_in: return
-
-    c1, c2, c3 = st.columns([1, 2, 1])
-    with c2:
-        with st.form("login"):
-            user = st.text_input("Username")
-            pwd = st.text_input("Password", type="password")
-            if st.form_submit_button("Sign In", type="primary"):
-                if check_login(user, pwd):
-                    st.session_state.logged_in = True
-                    st.session_state.username = user
-                    st.rerun()
-                else:
-                    st.error("Invalid Credentials")
-    st.stop()
-
-login_page()
-
-# ---------------------------
 # 4. MAIN APP UI
 # ---------------------------
-st.title("🏗️ Jugnoo CRM")
 st.sidebar.write(f"👤 **{st.session_state.username}**")
 if st.sidebar.button("Logout"):
     st.session_state.logged_in = False
+    cookie_manager.delete("jugnoo_user")
     st.rerun()
 
 if not supabase: st.stop()
 
 tab1, tab2, tab3, tab4 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Estimator", "⚙️ Settings"])
 
-# --- TAB 1: DASHBOARD (EDITABLE CLIENTS + START DATE) ---
+# --- TAB 1: DASHBOARD (FIXED GPS) ---
 with tab1:
     st.subheader("Active Projects")
     response = run_query(supabase.table("clients").select("*").order("created_at", desc=True))
     
     if response and response.data:
         df = pd.DataFrame(response.data)
-        # Columns to show (Added start_date)
         cols_show = ['name', 'status', 'start_date', 'phone', 'address']
-        # Ensure columns exist in DF before selecting
         valid_cols = [c for c in cols_show if c in df.columns]
         st.dataframe(df[valid_cols], use_container_width=True, hide_index=True)
         
         st.divider()
         
-        # Client Management
         client_map = {c['name']: c for c in response.data}
         selected_client_name = st.selectbox("Select Client to Manage", list(client_map.keys()), index=None, key="dash_select")
         
@@ -160,17 +173,28 @@ with tab1:
             client = client_map[selected_client_name]
             
             st.markdown("### 🛠️ Manage Client")
-            
             col_details, col_status = st.columns([1.5, 1])
             
-            # 1. EDITABLE DETAILS FORM
+            # 1. EDIT DETAILS (GPS ADDED HERE)
             with col_details:
+                st.write("**Edit Details**")
+                
+                # GPS Button OUTSIDE Form
+                gps_dash = get_geolocation(component_key=f"gps_{client['id']}")
+                if gps_dash:
+                    lat_d = gps_dash['coords']['latitude']
+                    long_d = gps_dash['coords']['longitude']
+                    st.session_state[f"loc_{client['id']}"] = f"https://maps.google.com/?q={lat_d},{long_d}"
+                    st.toast("Location Updated!", icon="📍")
+
                 with st.form("edit_client_details"):
-                    st.write("**Edit Details**")
                     new_name = st.text_input("Name", value=client['name'])
                     new_phone = st.text_input("Phone", value=client.get('phone', ''))
                     new_addr = st.text_area("Address", value=client.get('address', ''))
-                    new_loc = st.text_input("Maps Link", value=client.get('location', ''))
+                    
+                    # Read from session state if GPS grabbed, else DB value
+                    current_loc = st.session_state.get(f"loc_{client['id']}", client.get('location', ''))
+                    new_loc = st.text_input("Maps Link (Click GPS above to fill)", value=current_loc)
                     
                     if st.form_submit_button("💾 Save Changes"):
                         run_query(supabase.table("clients").update({
@@ -180,7 +204,7 @@ with tab1:
                         time.sleep(0.5)
                         st.rerun()
 
-            # 2. STATUS & START DATE LOGIC
+            # 2. STATUS & DATE
             with col_status:
                 st.write("**Project Status**")
                 status_options = ["Estimate Given", "Order Received", "Work In Progress", "Work Done", "Closed"]
@@ -191,11 +215,16 @@ with tab1:
                 
                 new_status = st.selectbox("Update Status", status_options, index=curr_idx, key=f"st_{client['id']}")
                 
-                # Show Date Picker ONLY if Order Received or Later
+                # Start Date Picker
                 start_date_val = None
                 if new_status in ["Order Received", "Work In Progress", "Work Done"]:
                     current_date_str = client.get('start_date')
-                    default_date = datetime.strptime(current_date_str, '%Y-%m-%d').date() if current_date_str else datetime.now().date()
+                    # Handle None or existing date
+                    if current_date_str:
+                        default_date = datetime.strptime(current_date_str, '%Y-%m-%d').date()
+                    else:
+                        default_date = datetime.now().date()
+                        
                     start_date_val = st.date_input("📅 Start Date", value=default_date)
 
                 if st.button("Update Status", key=f"btn_st_{client['id']}"):
@@ -223,19 +252,18 @@ with tab1:
                         st.dataframe(items_df, use_container_width=True)
                         st.metric("Total Quoted", f"₹{items_df['Total Price'].sum():,.2f}")
 
-# --- TAB 2: NEW CLIENT (GPS FIXED) ---
+# --- TAB 2: NEW CLIENT ---
 with tab2:
     st.subheader("Add New Client")
     
-    # GPS BUTTON OUTSIDE FORM
     st.write("📍 **Auto-Fill Location**")
-    loc_button = get_geolocation(component_key="gps_btn")
+    loc_button = get_geolocation(component_key="gps_btn_new")
     
     if loc_button:
         lat = loc_button['coords']['latitude']
         long = loc_button['coords']['longitude']
-        st.session_state['new_loc_val'] = f"http://maps.google.com/?q={lat},{long}"
-        st.success("Location Grabbed!")
+        st.session_state['new_loc_val'] = f"https://maps.google.com/?q={lat},{long}"
+        st.success("Location Captured!")
 
     with st.form("add_client_form"):
         c1, c2 = st.columns(2)
@@ -243,7 +271,6 @@ with tab2:
         phone = c2.text_input("Phone Number")
         address = st.text_area("Address")
         
-        # Uses session state to catch the GPS update
         default_loc = st.session_state.get('new_loc_val', "")
         loc = st.text_input("Google Maps Link", value=default_loc)
         
@@ -253,12 +280,11 @@ with tab2:
                 "status": "Estimate Given", "created_at": datetime.now().isoformat()
             }))
             st.success(f"Client {name} Added!")
-            # Clear session GPS
             if 'new_loc_val' in st.session_state: del st.session_state['new_loc_val']
             time.sleep(1)
             st.rerun()
 
-# --- TAB 3: ESTIMATOR (SAME AS BEFORE) ---
+# --- TAB 3: ESTIMATOR ---
 with tab3:
     st.subheader("Estimator Engine")
     all_clients = run_query(supabase.table("clients").select("id, name, internal_estimate").neq("status", "Closed"))
@@ -284,7 +310,7 @@ with tab3:
 
         st.divider()
         global_settings = get_settings()
-        use_custom = st.checkbox("🛠️ Use Custom Margins", value=(saved_margins is not None))
+        use_custom = st.checkbox("🛠️ Use Custom Margins", value=(saved_margins is not None), key="cust_check")
         
         if use_custom:
             def_p = int((saved_margins['p'] if saved_margins else global_settings['part_margin']) * 100)
