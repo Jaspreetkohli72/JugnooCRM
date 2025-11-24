@@ -43,8 +43,7 @@ supabase = init_connection()
 # ---------------------------
 # 2. AUTHENTICATION (COOKIES)
 # ---------------------------
-# FIX: Removed invalid argument 'experimental_allow_widgets'
-@st.cache_resource
+# FIX: Removed @st.cache_resource (Widgets cannot be cached)
 def get_manager():
     return stx.CookieManager(key="auth_cookie_manager")
 
@@ -60,22 +59,21 @@ def check_login(username, password):
 def login_section():
     st.title("🔒 Jugnoo CRM")
     
-    # 1. Try to get cookie
-    # Note: We add a small sleep to allow the cookie manager to mount
-    time.sleep(0.1)
+    # 1. Check Cookie
+    time.sleep(0.1) # Allow component to mount
     cookie_user = cookie_manager.get(cookie="jugnoo_user")
     
-    # 2. If Cookie found, auto-login
+    # 2. Auto-Login
     if cookie_user:
         st.session_state.logged_in = True
         st.session_state.username = cookie_user
         return 
 
-    # 3. If already logged in via session state, skip
+    # 3. Session Check
     if st.session_state.get('logged_in'):
         return
 
-    # 4. Show Login Form
+    # 4. Login Form
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         with st.form("login"):
@@ -190,13 +188,13 @@ with tab1:
             with col_details:
                 st.write("**Edit Details**")
                 
-                # GPS Button for Dashboard (Visible Toggle)
+                # GPS Button for Dashboard
                 if st.toggle("Show GPS Button", key="tgl_dash"):
                     gps_dash = get_geolocation(component_key=f"gps_{client['id']}")
                     if gps_dash:
                         lat_d = gps_dash['coords']['latitude']
                         long_d = gps_dash['coords']['longitude']
-                        st.session_state[f"loc_{client['id']}"] = f"https://maps.google.com/?q={lat_d},{long_d}"
+                        st.session_state[f"loc_{client['id']}"] = f"http://googleusercontent.com/maps.google.com/?q={lat_d},{long_d}"
                         st.info("Location received! Check the Maps Link field below.")
 
                 with st.form("edit_client_details"):
@@ -262,13 +260,12 @@ with tab1:
 with tab2:
     st.subheader("Add New Client")
     
-    # GPS Button for New Client (Visible Toggle)
     if st.toggle("📍 Get Current Location", key="tgl_new"):
         loc_button = get_geolocation(component_key="gps_btn_new")
         if loc_button:
             lat = loc_button['coords']['latitude']
             long = loc_button['coords']['longitude']
-            st.session_state['new_loc_val'] = f"https://maps.google.com/?q={lat},{long}"
+            st.session_state['new_loc_val'] = f"http://googleusercontent.com/maps.google.com/?q={lat},{long}"
             st.success("Location Captured! See field below.")
 
     with st.form("add_client_form"):
