@@ -14,19 +14,19 @@ st.set_page_config(page_title="Jugnoo CRM", page_icon="🏗️", layout="wide")
 
 st.markdown("""
     <style>
-    /* GLOBAL DARK THEME FIX (Removes White Bars on Mobile) */
+    /* 1. Fix White Bars on Mobile (Force Dark Theme) */
     .stApp {
-        background-color: #0E1117 !important;
+        background-color: #0E1117;
     }
     header[data-testid="stHeader"] {
-        background-color: #0E1117 !important;
+        background-color: #0E1117;
     }
     
-    /* Hide Streamlit Default Elements */
+    /* 2. Hide Streamlit Elements */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* Dark Mode Metric Cards */
+    /* 3. Dark Mode Metric Cards */
     [data-testid="stMetric"] {
         background-color: #262730;
         border: 1px solid #464b5f;
@@ -35,13 +35,6 @@ st.markdown("""
         color: white;
     }
     [data-testid="stMetricLabel"] { color: #b4b4b4; }
-    
-    /* Button Styling adjustments */
-    button[kind="secondary"] {
-        background-color: #262730;
-        border: 1px solid #464b5f;
-        color: white;
-    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -59,6 +52,7 @@ supabase = init_connection()
 # ---------------------------
 # 2. AUTHENTICATION (COOKIES)
 # ---------------------------
+# Removed @st.cache_resource as widgets cannot be cached
 def get_manager():
     return stx.CookieManager(key="auth_cookie_manager")
 
@@ -170,7 +164,7 @@ if not supabase: st.stop()
 
 tab1, tab2, tab3, tab4 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Estimator", "⚙️ Settings"])
 
-# --- TAB 1: DASHBOARD (NAVIGATE BUTTON ADDED) ---
+# --- TAB 1: DASHBOARD ---
 with tab1:
     st.subheader("Active Projects")
     response = run_query(supabase.table("clients").select("*").order("created_at", desc=True))
@@ -194,24 +188,20 @@ with tab1:
             
             with col_details:
                 st.write("**Edit Details**")
-                
-                # BUTTON: Get GPS for existing client
-                gps_data = get_geolocation(component_key=f"gps_dash_{client['id']}")
-                if gps_data:
-                    lat = gps_data['coords']['latitude']
-                    lng = gps_data['coords']['longitude']
-                    st.session_state[f"loc_{client['id']}"] = f"https://www.google.com/maps/dir/?api=1&destination={lat},{lng}"
-                    st.success("📍 Location Grabbed!")
+                if st.toggle("Show GPS Button", key="tgl_dash"):
+                    gps_dash = get_geolocation(component_key=f"gps_{client['id']}")
+                    if gps_dash:
+                        lat_d = gps_dash['coords']['latitude']
+                        long_d = gps_dash['coords']['longitude']
+                        st.session_state[f"loc_{client['id']}"] = f"http://googleusercontent.com/maps.google.com/?q={lat_d},{long_d}"
+                        st.info("Location received!")
 
                 with st.form("edit_client_details"):
                     new_name = st.text_input("Name", value=client['name'])
                     new_phone = st.text_input("Phone", value=client.get('phone', ''))
                     new_addr = st.text_area("Address", value=client.get('address', ''))
-                    
-                    # Use session state value if just grabbed, else DB value
                     current_loc = st.session_state.get(f"loc_{client['id']}", client.get('location', ''))
-                    new_loc = st.text_input("Maps Link (Use Button Above)", value=current_loc)
-                    
+                    new_loc = st.text_input("Maps Link", value=current_loc)
                     if st.form_submit_button("💾 Save Changes"):
                         run_query(supabase.table("clients").update({
                             "name": new_name, "phone": new_phone, "address": new_addr, "location": new_loc
@@ -219,10 +209,6 @@ with tab1:
                         st.success("Details Updated!")
                         time.sleep(0.5)
                         st.rerun()
-                
-                # NAVIGATE BUTTON (Opens Maps)
-                if client.get('location'):
-                    st.link_button("🚀 Navigate to Site", client['location'])
 
             with col_status:
                 st.write("**Project Status**")
@@ -284,6 +270,7 @@ with tab1:
                         
                         pdf_bytes = create_pdf(client['name'], saved_items, saved_days, labor_total, grand_total)
                         
+                        # FIX: UNIQUE KEY ADDED HERE
                         st.download_button(
                             label="📄 Download PDF",
                             data=pdf_bytes,
@@ -294,26 +281,26 @@ with tab1:
                 else:
                     st.warning("Estimate data appears empty.")
 
-# --- TAB 2: NEW CLIENT (GPS BUTTON FIXED) ---
+# --- TAB 2: NEW CLIENT ---
 with tab2:
     st.subheader("Add New Client")
     
-    st.info("👇 Click below to auto-fill location")
-    # BUTTON: Get GPS for new client
-    gps_new = get_geolocation(component_key="gps_btn_new")
-    if gps_new:
-        lat = gps_new['coords']['latitude']
-        long = gps_new['coords']['longitude']
-        st.session_state['new_loc_val'] = f"https://www.google.com/maps/dir/?api=1&destination={lat},{long}"
-        st.toast("Location Captured!", icon="📍")
+    if st.toggle("📍 Get Current Location", key="tgl_new"):
+        loc_button = get_geolocation(component_key="gps_btn_new")
+        if loc_button:
+            lat = loc_button['coords']['latitude']
+            long = loc_button['coords']['longitude']
+            st.session_state['new_loc_val'] = f"http://googleusercontent.com/maps.google.com/?q={lat},{long}"
+            st.success("Location Captured! See field below.")
 
     with st.form("add_client_form"):
         c1, c2 = st.columns(2)
         name = c1.text_input("Client Name")
         phone = c2.text_input("Phone Number")
         address = st.text_area("Address")
+        
         default_loc = st.session_state.get('new_loc_val', "")
-        loc = st.text_input("Google Maps Link", value=default_loc, placeholder="Click button above to fill")
+        loc = st.text_input("Google Maps Link", value=default_loc)
         
         if st.form_submit_button("Create Client", type="primary"):
             run_query(supabase.table("clients").insert({
