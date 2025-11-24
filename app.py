@@ -81,7 +81,7 @@ with tab1:
     
     if response and response.data:
         df = pd.DataFrame(response.data)
-        # Safe column selection
+        # Safe column selection for the summary table
         cols = [c for c in ['name', 'status', 'phone', 'address'] if c in df.columns]
         st.dataframe(df[cols], use_container_width=True, hide_index=True)
         
@@ -93,22 +93,68 @@ with tab1:
         
         if selected_client_name:
             client = client_map[selected_client_name]
-            c1, c2 = st.columns(2)
+            
+            st.markdown("### 👤 Client Details")
+            c1, c2 = st.columns([2, 1])
+            
             with c1:
-                st.info(f"**Status:** {client['status']}")
-                st.write(f"📞 {client['phone']}")
+                st.write(f"**Name:** {client['name']}")
+                st.write(f"**📞 Phone:** {client.get('phone', 'N/A')}")
+                st.write(f"**📍 Address:** {client.get('address', 'N/A')}")
                 if client.get('location'):
-                    st.markdown(f"📍 [View Map]({client['location']})")
+                    st.markdown(f"**🗺️ Location:** [Open in Google Maps]({client['location']})")
+                st.write(f"**📅 Added On:** {client.get('created_at', '')[:10]}")
             
             with c2:
+                st.info(f"**Current Status:** {client.get('status', 'Unknown')}")
+                
+                # Status Logic: Find current index to set default value correctly
+                status_options = ["Estimate Given", "Order Received", "Work In Progress", "Work Done", "Closed"]
+                try:
+                    current_index = status_options.index(client.get('status'))
+                except ValueError:
+                    current_index = 0
+                
                 new_status = st.selectbox("Update Status", 
-                    ["Estimate Given", "Order Received", "Work In Progress", "Work Done", "Closed"],
+                    status_options,
+                    index=current_index,
                     key=f"status_{client['id']}"
                 )
+                
                 if st.button("Update Status", key=f"btn_{client['id']}"):
                     run_query(supabase.table("clients").update({"status": new_status}).eq("id", client['id']))
-                    st.success("Updated!")
+                    st.success("Status Updated!")
                     st.rerun()
+
+            # Show Saved Estimate if exists
+            if client.get('internal_estimate'):
+                st.divider()
+                st.subheader("📄 Saved Estimate")
+                est_data = client['internal_estimate']
+                
+                # Handle data structure (Dict vs List)
+                if isinstance(est_data, dict):
+                    # New Format
+                    items_df = pd.DataFrame(est_data.get('items', []))
+                    margins = est_data.get('margins')
+                    if margins:
+                        st.caption(f"Using Custom Margins: P {margins['p']*100:.0f}% | L {margins['l']*100:.0f}% | E {margins['e']*100:.0f}%")
+                else:
+                    # Old Format (List only)
+                    items_df = pd.DataFrame(est_data) if isinstance(est_data, list) else pd.DataFrame()
+
+                if not items_df.empty:
+                    # Check needed columns
+                    if "Total Price" not in items_df.columns and "Total (Internal)" in items_df.columns:
+                         items_df["Total Price"] = items_df["Total (Internal)"]
+                    
+                    if "Total Price" in items_df.columns:
+                        st.dataframe(items_df, use_container_width=True)
+                        st.metric("Total Quoted Amount", f"₹{items_df['Total Price'].sum():,.2f}")
+                    else:
+                        st.dataframe(items_df, use_container_width=True)
+                else:
+                    st.warning("Estimate data is empty.")
 
 # --- TAB 2: NEW CLIENT ---
 with tab2:
@@ -116,7 +162,7 @@ with tab2:
     with st.form("add_client"):
         c1, c2 = st.columns(2)
         name = c1.text_input("Client Name")
-        phone = c2.text_input("Phone")
+        phone = c2.text_input("Phone Number")
         address = st.text_area("Address")
         loc = st.text_input("Google Maps Link")
         
@@ -127,7 +173,7 @@ with tab2:
             }))
             st.success("Client Added!")
 
-# --- TAB 3: ESTIMATOR (GRANULAR CONTROL) ---
+# --- TAB 3: ESTIMATOR ---
 with tab3:
     st.subheader("Estimator Engine")
     
@@ -140,7 +186,7 @@ with tab3:
     if target_client_name:
         target_client = client_dict[target_client_name]
         
-        # Load Data Logic
+        # Load Logic
         saved_est = target_client.get('internal_estimate')
         loaded_items = []
         saved_margins = None
@@ -157,12 +203,11 @@ with tab3:
 
         st.divider()
         
-        # 2. Custom Margins Checkbox
+        # 2. Margins
         global_settings = get_settings()
         use_custom = st.checkbox("🛠️ Use Custom Margins for this Client", value=(saved_margins is not None))
         
         if use_custom:
-            # Defaults: Saved > Global
             def_p = int((saved_margins['p'] if saved_margins else global_settings['part_margin']) * 100)
             def_l = int((saved_margins['l'] if saved_margins else global_settings['labor_margin']) * 100)
             def_e = int((saved_margins['e'] if saved_margins else global_settings['extra_margin']) * 100)
@@ -195,7 +240,7 @@ with tab3:
                     })
                     st.rerun()
 
-        # 4. Editable List & Calculation
+        # 4. Editable Grid & Calc
         if st.session_state[ss_key]:
             margin_mult = 1 + active_margins['part_margin'] + active_margins['labor_margin'] + active_margins['extra_margin']
             
@@ -203,7 +248,7 @@ with tab3:
             if "Qty" not in df.columns: df["Qty"] = 1.0
             if "Base Rate" not in df.columns: df["Base Rate"] = 0.0
             
-            # Calculate Live
+            # Live Calc
             df["Unit Price (Calc)"] = df["Base Rate"] * margin_mult
             df["Total Price"] = df["Unit Price (Calc)"] * df["Qty"]
             
@@ -222,10 +267,8 @@ with tab3:
                 key=f"edit_{target_client['id']}"
             )
             
-            # Sync edits back to list
             current_items = edited_df.to_dict(orient="records")
             
-            # Totals
             total_client = edited_df["Total Price"].sum()
             total_base = (edited_df["Base Rate"] * edited_df["Qty"]).sum()
             profit = total_client - total_base
@@ -260,7 +303,6 @@ with tab4:
         
         c1, c2, c3 = st.columns(3)
         
-        # Fetch current values or defaults
         p_curr = int(s.get('part_margin', 0.15) * 100)
         l_curr = int(s.get('labor_margin', 0.20) * 100)
         e_curr = int(s.get('extra_margin', 0.05) * 100)
