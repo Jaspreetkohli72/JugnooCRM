@@ -1,7 +1,7 @@
 import streamlit as st
 from supabase import create_client
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 from fpdf import FPDF
 from streamlit_js_eval import get_geolocation
@@ -80,8 +80,9 @@ def login_section():
                 if check_login(user, pwd):
                     st.session_state.logged_in = True
                     st.session_state.username = user
-                    # Set Cookie (Expires in 7 days)
-                    cookie_manager.set("jugnoo_user", user, expires_at=datetime.now().timestamp() + 604800)
+                    # FIX: Use datetime object, not timestamp float
+                    expires = datetime.now() + timedelta(days=7)
+                    cookie_manager.set("jugnoo_user", user, expires_at=expires)
                     st.rerun()
                 else:
                     st.error("Invalid Credentials")
