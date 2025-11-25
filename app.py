@@ -208,7 +208,6 @@ with tab1:
                             st.success("Updated!")
                             time.sleep(0.5)
                             st.rerun()
-                
                 if client.get('location'):
                     st.link_button("🚀 Navigate to Site", client['location'])
 
@@ -286,7 +285,7 @@ with tab2:
     
     # STRICT GPS LOGIC for New Client
     gps_new = get_geolocation(component_key="gps_new")
-    # Logic: Only update if gps_new exists AND is different from what we last processed
+    # Only update if gps_new exists AND is different from what we last processed
     if gps_new and gps_new != st.session_state.get('last_gps_new'):
         st.session_state['last_gps_new'] = gps_new
         lat = gps_new['coords']['latitude']
@@ -374,6 +373,7 @@ with tab3:
             df["Total Price"] = df["Unit Price (Calc)"] * df["Qty"]
             
             st.write("#### Items")
+            # EDITABLE GRID (Restored)
             edf = st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"t_{tc['id']}",
                 column_config={"Item": st.column_config.TextColumn(disabled=True), "Base Rate": st.column_config.NumberColumn(disabled=True, format="₹%.2f"), "Total Price": st.column_config.NumberColumn(disabled=True, format="₹%.2f")})
             
@@ -389,7 +389,7 @@ with tab3:
             st.divider()
             c1, c2, c3 = st.columns(3)
             c1.metric("Material", f"₹{mt:,.0f}")
-            c2.metric("Labor", f"₹{disp_lt:,.0f}", help=f"Raw: ₹{raw_lt:.0f} + Rounding: ₹{r_delta:.0f}")
+            c2.metric("Labor", f"₹{disp_lt:,.0f}", help=f"Includes Rounding: +₹{delta:.0f}")
             c3.metric("Grand Total", f"₹{rounded_gt:,.0f}")
             
             cs, cp = st.columns(2)
@@ -413,14 +413,13 @@ with tab4:
         lc = st.number_input("Daily Labor (₹)", value=float(s.get('daily_labor_cost', 1000.0)), step=100.0)
         
         if st.form_submit_button("Update Settings"):
-            res = run_query(supabase.table("settings").upsert({
+            run_query(supabase.table("settings").upsert({
                 "id": 1, "part_margin": p, "labor_margin": l, "extra_margin": e, "daily_labor_cost": lc
             }))
-            if res and res.data:
-                st.success("Saved!")
-                st.cache_resource.clear()
-                time.sleep(1)
-                st.rerun()
+            st.success("Saved!")
+            st.cache_resource.clear()
+            time.sleep(1)
+            st.rerun()
             
     st.divider()
     st.subheader("Inventory (Editable)")
@@ -432,12 +431,9 @@ with tab4:
         edited_inv = st.data_editor(inv_df, num_rows="dynamic", key="inv_edit")
         
         if st.button("💾 Save Inventory Changes"):
-            # Convert back to records
             recs = edited_inv.to_dict(orient="records")
-            # Upsert all rows (handled by ID)
             errors = 0
             for row in recs:
-                # Filter out new empty rows if any
                 if row.get('item_name'):
                    res = run_query(supabase.table("inventory").upsert(row))
                    if not res: errors += 1
@@ -454,6 +450,5 @@ with tab4:
         st.subheader("User Profile")
         np = st.text_input("New Password", type="password")
         if st.form_submit_button("Update Password"):
-            res = run_query(supabase.table("users").update({"password": np}).eq("username", st.session_state.username))
-            if res and res.data:
-                st.success("Updated!")
+            run_query(supabase.table("users").update({"password": np}).eq("username", st.session_state.username))
+            st.success("Updated!")
