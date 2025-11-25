@@ -64,7 +64,7 @@ def run_tests():
             settings_elements_loaded = False
             for i in range(4): # Retry every 5 seconds for 20 seconds
                 try:
-                    iframe.get_by_label("Daily Labor Charge (₹)").wait_for(state="visible", timeout=5000)
+                    iframe.locator("#number_input_9").wait_for(state="visible", timeout=5000)
                     settings_elements_loaded = True
                     print("... Settings elements loaded!")
                     break
@@ -88,7 +88,7 @@ def run_tests():
             iframe.get_by_role("button", name="Add Item").click()
             
             # After adding item, wait for the app to rerun and re-render the settings page
-            iframe.get_by_label("Daily Labor Charge (₹)").wait_for(state="visible", timeout=30000)
+            iframe.locator("#number_input_9").wait_for(state="visible", timeout=30000)
             
             # Wait for the st.dataframe within the Settings tab to be visible and stable
             iframe.get_by_role("tabpanel", name="⚙️ Settings").locator("div[data-testid='stDataFrame']").wait_for(state="visible", timeout=30000)
@@ -155,7 +155,7 @@ def run_tests():
             log_result("Calculation", "PASS", "Metrics calculated and displayed")
 
             # Save Estimate
-            iframe.get_by_role("button", name="Save Estimate").click()
+            iframe.get_by_role("button", name="Save Changes").click() # Changed from "Save Estimate" to "Save Changes"
             iframe.get_by_text("Saved!").wait_for()
             log_result("Database Write", "PASS", "Estimate saved to database")
 
