@@ -107,41 +107,41 @@ def get_settings():
         pass
     return defaults
 
+# --- PROFESSIONAL PDF GENERATOR ---
 def create_pdf(client_name, items, labor_days, labor_total, grand_total):
     pdf = FPDF()
     pdf.add_page()
     
-    # --- HEADER ---
+    # Header
     pdf.set_font("Arial", 'B', 20)
     pdf.cell(0, 10, "Jugnoo CRM", ln=True, align='L')
     pdf.set_font("Arial", 'I', 10)
     pdf.cell(0, 6, "Smart Automation Solutions", ln=True, align='L')
-    pdf.line(10, 28, 200, 28) # Horizontal line
+    pdf.line(10, 28, 200, 28)
     pdf.ln(15)
     
-    # --- CLIENT INFO ---
+    # Client Info
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(0, 8, f"Estimate For: {client_name}", ln=True)
     pdf.set_font("Arial", '', 10)
     pdf.cell(0, 8, f"Date: {datetime.now().strftime('%d-%b-%Y')}", ln=True)
     pdf.ln(5)
     
-    # --- TABLE HEADER ---
-    pdf.set_fill_color(240, 240, 240) # Light Gray background
+    # Table Header
+    pdf.set_fill_color(240, 240, 240)
     pdf.set_font("Arial", 'B', 10)
     pdf.cell(110, 10, "Description", 1, 0, 'L', 1)
     pdf.cell(20, 10, "Qty", 1, 0, 'C', 1)
     pdf.cell(60, 10, "Amount (INR)", 1, 1, 'R', 1)
     
-    # --- TABLE ROWS ---
+    # Rows
     pdf.set_font("Arial", '', 10)
     for item in items:
         pdf.cell(110, 8, str(item['Item']), 1)
         pdf.cell(20, 8, str(item['Qty']), 1, 0, 'C')
-        # Format currency with commas
         pdf.cell(60, 8, f"{item['Total Price']:,.2f}", 1, 1, 'R')
         
-    # --- LABOR & TOTALS ---
+    # Totals
     pdf.set_font("Arial", '', 10)
     pdf.cell(130, 8, f"Labor / Installation ({labor_days} Days)", 1, 0, 'R')
     pdf.cell(60, 8, f"{labor_total:,.2f}", 1, 1, 'R')
@@ -150,11 +150,11 @@ def create_pdf(client_name, items, labor_days, labor_total, grand_total):
     pdf.cell(130, 10, "Grand Total", 1, 0, 'R')
     pdf.cell(60, 10, f"Rs. {grand_total:,.2f}", 1, 1, 'R')
     
-    # --- DISCLAIMER FOOTER ---
+    # Footer Disclaimer
     pdf.ln(20)
     pdf.set_font("Arial", 'I', 8)
-    pdf.set_text_color(100, 100, 100) # Gray text
-    pdf.multi_cell(0, 5, "NOTE: This is an estimate only. Final rates may vary based on actual site conditions, market fluctuations, and changes in project scope. Valid for 7 days.")
+    pdf.set_text_color(100, 100, 100)
+    pdf.multi_cell(0, 5, "NOTE: This is an estimate only. Final rates may vary based on actual site conditions and market fluctuations. Valid for 7 days.")
     
     return pdf.output(dest='S').encode('latin-1')
 
@@ -175,7 +175,6 @@ tab1, tab2, tab3, tab4 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Esti
 with tab1:
     st.subheader("Active Projects")
     response = run_query(supabase.table("clients").select("*").order("created_at", desc=True))
-    
     if response and response.data:
         df = pd.DataFrame(response.data)
         cols = [c for c in ['name', 'status', 'start_date', 'phone', 'address'] if c in df.columns]
@@ -205,7 +204,6 @@ with tab1:
                     # Force update the widget key
                     st.session_state[f"dash_loc_in_{client['id']}"] = f"http://googleusercontent.com/maps.google.com/?q={lat},{lng}"
                     st.toast("📍 Location Updated!")
-                    # Rerun to reflect changes in the text input below
                     st.rerun()
 
                 with st.form("edit_details"):
@@ -213,12 +211,10 @@ with tab1:
                     np = st.text_input("Phone", value=client.get('phone', ''))
                     na = st.text_area("Address", value=client.get('address', ''))
                     
-                    # Bind to session state key for GPS injection
+                    # Bind to session state
                     loc_key = f"dash_loc_in_{client['id']}"
-                    # If key not in session, seed it with DB value
                     if loc_key not in st.session_state:
                         st.session_state[loc_key] = client.get('location', '')
-                        
                     nl = st.text_input("Maps Link", key=loc_key)
                     
                     if st.form_submit_button("💾 Save Changes"):
@@ -253,7 +249,7 @@ with tab1:
                         time.sleep(0.5)
                         st.rerun()
 
-            # --- DASHBOARD ESTIMATE EDITING ---
+            # --- EDITABLE ESTIMATE (RESTORED) ---
             if client.get('internal_estimate'):
                 st.divider()
                 st.subheader("📄 Manage Estimate")
@@ -267,7 +263,6 @@ with tab1:
                     idf = pd.DataFrame(s_items)
                     if "Total Price" not in idf.columns: idf["Total Price"] = 0.0
                     
-                    # EDITABLE TABLE restored
                     edited_est = st.data_editor(idf, num_rows="dynamic", use_container_width=True, key=f"de_{client['id']}")
                     
                     gs = get_settings()
@@ -275,7 +270,6 @@ with tab1:
                     lab_raw = float(s_days) * float(gs.get('daily_labor_cost', 1000))
                     raw_grand = mat + lab_raw
                     
-                    # Rounding
                     rounded_grand = math.ceil(raw_grand / 100) * 100
                     delta = rounded_grand - raw_grand
                     disp_lab = lab_raw + delta
@@ -287,11 +281,7 @@ with tab1:
                     
                     c_save, c_pdf = st.columns(2)
                     if c_save.button("💾 Save Estimate Changes", key=f"sv_{client['id']}"):
-                        new_json = {
-                            "items": edited_est.to_dict(orient="records"),
-                            "days": s_days,
-                            "margins": s_margins
-                        }
+                        new_json = {"items": edited_est.to_dict(orient="records"), "days": s_days, "margins": s_margins}
                         run_query(supabase.table("clients").update({"internal_estimate": new_json}).eq("id", client['id']))
                         st.toast("Estimate Updated!", icon="✅")
                     
@@ -332,7 +322,9 @@ with tab2:
             }))
             if res and res.data:
                 st.success(f"Client {nm} Added!")
-                st.session_state['nc_loc'] = "" # Clear
+                # CRASH FIX: Safely delete keys
+                for k in ['nc_loc', 'last_gps_new']:
+                    if k in st.session_state: del st.session_state[k]
                 time.sleep(1)
                 st.rerun()
             else:
@@ -357,7 +349,6 @@ with tab3:
         st.divider()
         gs = get_settings()
         uc = st.checkbox("🛠️ Use Custom Margins", value=(sm is not None), key="cm")
-        
         if uc:
             dp = int(sm['p']) if sm else int(gs['part_margin'])
             dl = int(sm['l']) if sm else int(gs['labor_margin'])
@@ -369,7 +360,6 @@ with tab3:
             am = {'part_margin': cp, 'labor_margin': cl, 'extra_margin': ce}
         else:
             am = gs
-            
         dys = st.slider("⏳ Days", 0.5, 30.0, float(sd), 0.5)
 
         st.divider()
@@ -394,13 +384,11 @@ with tab3:
             df["Total Price"] = df["Unit Price (Calc)"] * df["Qty"]
             
             st.write("#### Items")
-            # EDITABLE GRID (Restored)
             edf = st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"t_{tc['id']}",
                 column_config={"Item": st.column_config.TextColumn(disabled=True), "Base Rate": st.column_config.NumberColumn(disabled=True, format="₹%.2f"), "Total Price": st.column_config.NumberColumn(disabled=True, format="₹%.2f")})
             
             cit = edf.to_dict(orient="records")
             mt = edf["Total Price"].sum()
-            
             raw_lt = dys * float(gs.get('daily_labor_cost', 1000))
             raw_gt = mt + raw_lt
             rounded_gt = math.ceil(raw_gt / 100) * 100
@@ -448,7 +436,6 @@ with tab4:
     inv_resp = run_query(supabase.table("inventory").select("*").order("item_name"))
     if inv_resp and inv_resp.data:
         inv_df = pd.DataFrame(inv_resp.data)
-        # Show Data Editor
         edited_inv = st.data_editor(inv_df, num_rows="dynamic", key="inv_edit")
         
         if st.button("💾 Save Inventory Changes"):
