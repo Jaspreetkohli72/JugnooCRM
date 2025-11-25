@@ -59,6 +59,7 @@ def run_tests():
             print("Phase 2: Settings & Inventory...")
             # Switch Tab
             iframe.get_by_role("tab", name="Settings").click()
+            time.sleep(3) # Added sleep after tab click
             
             # Wait for a unique element on the Settings tab to be visible
             iframe.get_by_label("Daily Labor Charge (₹)").wait_for(state="visible", timeout=30000)
@@ -78,8 +79,8 @@ def run_tests():
             # After adding item, wait for the app to rerun and re-render the settings page
             iframe.get_by_label("Daily Labor Charge (₹)").wait_for(state="visible", timeout=30000)
             
-            # Wait for the st.dataframe itself to be visible and stable
-            iframe.locator("div[data-testid='stDataFrame']").wait_for(state="visible", timeout=30000)
+            # Wait for the st.dataframe within the Settings tab to be visible and stable
+            iframe.get_by_role("tabpanel", name="⚙️ Settings").locator("div[data-testid='stDataFrame']").wait_for(state="visible", timeout=30000)
 
             # Verify Table Update by waiting for the text to appear
             iframe.get_by_text(test_item_name).wait_for(state="visible", timeout=30000)
@@ -90,6 +91,7 @@ def run_tests():
             # ---------------------------------------------------------
             print("Phase 3: Create Client...")
             iframe.get_by_role("tab", name="New Client").click()
+            time.sleep(3) # Added sleep after tab click
             iframe.get_by_label("Client Name").wait_for(state="visible", timeout=30000)
             
             # Test GPS Button
@@ -114,6 +116,7 @@ def run_tests():
             # ---------------------------------------------------------
             print("Phase 4: Estimator Engine...")
             iframe.get_by_role("tab", name="Estimator").click()
+            time.sleep(3) # Added sleep after tab click
             
             # Wait for the "Select Client" label to be visible before interacting
             iframe.get_by_text("Select Client", exact=True).wait_for(timeout=30000)
@@ -152,6 +155,7 @@ def run_tests():
             # ---------------------------------------------------------
             print("Phase 5: Dashboard Verification...")
             iframe.get_by_role("tab", name="Dashboard").click()
+            time.sleep(3) # Added sleep after tab click
             
             # Select the client in Dashboard
             dashboard_client_select = iframe.locator("div[data-testid='stSelectbox']").first
