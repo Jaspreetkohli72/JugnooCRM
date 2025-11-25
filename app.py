@@ -3,6 +3,7 @@ from supabase import create_client
 import pandas as pd
 from datetime import datetime, timedelta
 import time
+import math
 from fpdf import FPDF
 from streamlit_js_eval import get_geolocation
 import extra_streamlit_components as stx
@@ -96,7 +97,6 @@ login_section()
 # 3. HELPERS
 # ---------------------------
 def run_query(query_func):
-    """Runs query and handles errors visibly."""
     try:
         return query_func.execute()
     except Exception as e:
@@ -137,7 +137,8 @@ def create_pdf(client_name, items, labor_days, labor_total, grand_total):
         pdf.cell(60, 10, f"{item['Total Price']:.2f}", 1)
         pdf.ln()
     pdf.ln(5)
-    pdf.cell(130, 10, f"Labor ({labor_days} Days)", 1)
+    # Labor Total here INCLUDES the hidden rounding profit
+    pdf.cell(130, 10, f"Labor / Installation ({labor_days} Days)", 1)
     pdf.cell(60, 10, f"{labor_total:.2f}", 1)
     pdf.ln()
     pdf.set_font("Arial", 'B', 14)
@@ -162,7 +163,6 @@ tab1, tab2, tab3, tab4 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Esti
 with tab1:
     st.subheader("Active Projects")
     response = run_query(supabase.table("clients").select("*").order("created_at", desc=True))
-    
     if response and response.data:
         df = pd.DataFrame(response.data)
         cols = [c for c in ['name', 'status', 'start_date', 'phone', 'address'] if c in df.columns]
@@ -174,35 +174,33 @@ with tab1:
         
         if sel_name:
             client = client_map[sel_name]
-            
             st.markdown("### 🛠️ Manage Client")
             c1, c2 = st.columns([1.5, 1])
             
             with c1:
                 st.write("**Edit Details**")
+                # GPS BUTTON (No Toggle)
                 gps_dash = get_geolocation(component_key=f"gps_dash_{client['id']}")
                 if gps_dash:
                     lat = gps_dash['coords']['latitude']
                     lng = gps_dash['coords']['longitude']
                     st.session_state[f"loc_{client['id']}"] = f"http://googleusercontent.com/maps.google.com/?q={lat},{lng}"
-                    st.toast("📍 Coordinates Grabbed!")
+                    st.toast("📍 Location Updated!")
 
                 with st.form("edit_details"):
                     nn = st.text_input("Name", value=client['name'])
                     np = st.text_input("Phone", value=client.get('phone', ''))
                     na = st.text_area("Address", value=client.get('address', ''))
                     curr_loc = st.session_state.get(f"loc_{client['id']}", client.get('location', ''))
-                    nl = st.text_input("Maps Link (Click GPS above)", value=curr_loc)
-                    
+                    nl = st.text_input("Maps Link", value=curr_loc)
                     if st.form_submit_button("💾 Save Changes"):
                         res = run_query(supabase.table("clients").update({
                             "name": nn, "phone": np, "address": na, "location": nl
                         }).eq("id", client['id']))
                         if res and res.data:
-                            st.success("Updated Successfully!")
+                            st.success("Updated!")
                             time.sleep(0.5)
                             st.rerun()
-                
                 if client.get('location'):
                     st.link_button("🚀 Navigate to Site", client['location'])
 
@@ -211,9 +209,7 @@ with tab1:
                 opts = ["Estimate Given", "Order Received", "Work In Progress", "Work Done", "Closed"]
                 try: idx = opts.index(client.get('status'))
                 except: idx = 0
-                
                 n_stat = st.selectbox("Status", opts, index=idx, key=f"st_{client['id']}")
-                
                 s_date = None
                 if n_stat in ["Order Received", "Work In Progress", "Work Done"]:
                     d_str = client.get('start_date')
@@ -238,44 +234,51 @@ with tab1:
                 
                 if s_items:
                     idf = pd.DataFrame(s_items)
-                    if "Total Price" not in idf.columns and "Total (Internal)" in idf.columns:
-                        idf["Total Price"] = idf["Total (Internal)"]
+                    if "Total Price" not in idf.columns and "Total (Internal)" in idf.columns: idf["Total Price"] = idf["Total (Internal)"]
                     
                     if "Total Price" in idf.columns:
                         st.dataframe(idf, use_container_width=True)
                         gs = get_settings()
+                        
+                        # ROUNDING LOGIC
                         mat = idf['Total Price'].sum()
-                        lab = float(s_days) * float(gs.get('daily_labor_cost', 1000))
-                        grand = mat + lab
+                        raw_lab = float(s_days) * float(gs.get('daily_labor_cost', 1000))
+                        raw_grand = mat + raw_lab
+                        
+                        # Round UP to nearest 100
+                        rounded_grand = math.ceil(raw_grand / 100) * 100
+                        rounding_delta = rounded_grand - raw_grand
+                        
+                        # Hide delta in Labor
+                        displayed_labor = raw_lab + rounding_delta
                         
                         m1, m2, m3 = st.columns(3)
                         m1.metric("Material", f"₹{mat:,.0f}")
-                        m2.metric("Labor", f"₹{lab:,.0f}", help=f"{s_days} Days")
-                        m3.metric("Grand Total", f"₹{grand:,.0f}")
+                        m2.metric("Labor (Adjusted)", f"₹{displayed_labor:,.0f}", help=f"Includes Rounding (+₹{rounding_delta:.0f})")
+                        m3.metric("Grand Total", f"₹{rounded_grand:,.0f}")
                         
-                        pdf_data = create_pdf(client['name'], s_items, s_days, lab, grand)
-                        st.download_button("📄 Download PDF", pdf_data, f"Est_{client['name']}.pdf", "application/pdf", key=f"pdf_{client['id']}")
+                        pdf_bytes = create_pdf(client['name'], s_items, s_days, displayed_labor, rounded_grand)
+                        st.download_button("📄 Download PDF", pdf_bytes, f"Est_{client['name']}.pdf", "application/pdf", key=f"pdf_dash_{client['id']}")
                 else:
-                    st.warning("Estimate data appears empty.")
+                    st.warning("Empty estimate.")
 
 # --- TAB 2: NEW CLIENT ---
 with tab2:
     st.subheader("Add New Client")
-    st.info("Click button below to auto-fill location")
+    # GPS BUTTON (No Toggle)
     gps_new = get_geolocation(component_key="gps_new")
     if gps_new:
         lat = gps_new['coords']['latitude']
         lng = gps_new['coords']['longitude']
         st.session_state['new_loc_val'] = f"http://googleusercontent.com/maps.google.com/?q={lat},{lng}"
-        st.toast("📍 Location Captured!")
+        st.toast("📍 Captured!")
 
     with st.form("new_client"):
         c1, c2 = st.columns(2)
         nm = c1.text_input("Client Name")
         ph = c2.text_input("Phone")
         ad = st.text_area("Address")
-        d_loc = st.session_state.get('new_loc_val', "")
-        lo = st.text_input("Google Maps Link", value=d_loc)
+        lo = st.text_input("Google Maps Link", value=st.session_state.get('new_loc_val', ""))
         
         if st.form_submit_button("Create Client", type="primary"):
             res = run_query(supabase.table("clients").insert({
@@ -283,12 +286,12 @@ with tab2:
                 "status": "Estimate Given", "created_at": datetime.now().isoformat()
             }))
             if res and res.data:
-                st.success(f"Client {nm} Added Successfully!")
+                st.success(f"Client {nm} Added!")
                 if 'new_loc_val' in st.session_state: del st.session_state['new_loc_val']
                 time.sleep(1)
                 st.rerun()
             else:
-                st.error("Failed to save client.")
+                st.error("Save Failed.")
 
 # --- TAB 3: ESTIMATOR ---
 with tab3:
@@ -310,7 +313,6 @@ with tab3:
         gs = get_settings()
         uc = st.checkbox("🛠️ Use Custom Margins", value=(sm is not None), key="cm")
         
-        # LOGIC CHANGE: Using Whole Numbers now
         if uc:
             dp = int(sm['p']) if sm else int(gs['part_margin'])
             dl = int(sm['l']) if sm else int(gs['labor_margin'])
@@ -338,7 +340,6 @@ with tab3:
                     st.rerun()
 
         if st.session_state[ssk]:
-            # MATH CHANGE: Divide by 100 for calculation
             mm = 1 + (am['part_margin']/100) + (am['labor_margin']/100) + (am['extra_margin']/100)
             df = pd.DataFrame(st.session_state[ssk])
             if "Qty" not in df.columns: df["Qty"] = 1.0
@@ -353,14 +354,19 @@ with tab3:
             
             cit = edf.to_dict(orient="records")
             mt = edf["Total Price"].sum()
-            lt = dys * float(gs.get('daily_labor_cost', 1000))
-            gt = mt + lt
+            
+            # ROUNDING LOGIC (Estimator View)
+            raw_lt = dys * float(gs.get('daily_labor_cost', 1000))
+            raw_gt = mt + raw_lt
+            rounded_gt = math.ceil(raw_gt / 100) * 100
+            r_delta = rounded_gt - raw_gt
+            disp_lt = raw_lt + r_delta
             
             st.divider()
             c1, c2, c3 = st.columns(3)
             c1.metric("Material", f"₹{mt:,.0f}")
-            c2.metric("Labor", f"₹{lt:,.0f}")
-            c3.metric("Total", f"₹{gt:,.0f}")
+            c2.metric("Labor", f"₹{disp_lt:,.0f}", help=f"Raw: ₹{raw_lt:.0f} + Rounding: ₹{r_delta:.0f}")
+            c3.metric("Grand Total", f"₹{rounded_gt:,.0f}")
             
             cs, cp = st.columns(2)
             if cs.button("💾 Save", type="primary"):
@@ -368,7 +374,7 @@ with tab3:
                 res = run_query(supabase.table("clients").update({"internal_estimate": sobj}).eq("id", tc['id']))
                 if res and res.data: st.toast("Saved!", icon="✅")
             
-            pbytes = create_pdf(tc['name'], cit, dys, lt, gt)
+            pbytes = create_pdf(tc['name'], cit, dys, disp_lt, rounded_gt)
             cp.download_button("📄 Download PDF", pbytes, f"Est_{tc['name']}.pdf", "application/pdf", key=f"pe_{tc['id']}")
 
 # --- TAB 4: SETTINGS ---
@@ -377,14 +383,12 @@ with tab4:
     s = get_settings()
     with st.form("glob_set"):
         c1, c2, c3 = st.columns(3)
-        # LOGIC CHANGE: Use whole numbers directly
         p = c1.slider("Part %", 0, 100, int(s.get('part_margin', 15.0)))
         l = c2.slider("Labor %", 0, 100, int(s.get('labor_margin', 20.0)))
         e = c3.slider("Extra %", 0, 100, int(s.get('extra_margin', 5.0)))
         lc = st.number_input("Daily Labor (₹)", value=float(s.get('daily_labor_cost', 1000.0)), step=100.0)
         
         if st.form_submit_button("Update Settings"):
-            # SAVE CHANGE: Save whole numbers directly (p, l, e)
             res = run_query(supabase.table("settings").upsert({
                 "id": 1, "part_margin": p, "labor_margin": l, "extra_margin": e, "daily_labor_cost": lc
             }))
