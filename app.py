@@ -16,10 +16,10 @@ st.markdown("""
     <style>
     /* 1. Fix White Bars on Mobile (Force Dark Theme) */
     .stApp {
-        background-color: #0E1117;
+        background-color: #0E1117 !important;
     }
     header[data-testid="stHeader"] {
-        background-color: #0E1117;
+        background-color: #0E1117 !important;
     }
     
     /* 2. Hide Streamlit Elements */
@@ -52,7 +52,6 @@ supabase = init_connection()
 # ---------------------------
 # 2. AUTHENTICATION (COOKIES)
 # ---------------------------
-# Removed @st.cache_resource as widgets cannot be cached
 def get_manager():
     return stx.CookieManager(key="auth_cookie_manager")
 
@@ -105,9 +104,11 @@ login_section()
 # 3. HELPER FUNCTIONS
 # ---------------------------
 def run_query(query_func):
+    """Runs query and handles errors visibly."""
     try:
         return query_func.execute()
     except Exception as e:
+        st.error(f"Database Error: {e}")
         return None
 
 def get_settings():
@@ -203,12 +204,20 @@ with tab1:
                     current_loc = st.session_state.get(f"loc_{client['id']}", client.get('location', ''))
                     new_loc = st.text_input("Maps Link", value=current_loc)
                     if st.form_submit_button("💾 Save Changes"):
-                        run_query(supabase.table("clients").update({
+                        # Explicit check for success
+                        res = run_query(supabase.table("clients").update({
                             "name": new_name, "phone": new_phone, "address": new_addr, "location": new_loc
                         }).eq("id", client['id']))
-                        st.success("Details Updated!")
-                        time.sleep(0.5)
-                        st.rerun()
+                        
+                        if res:
+                            st.success("Details Updated!")
+                            time.sleep(0.5)
+                            st.rerun()
+                
+                # Navigate Button (Only if location exists)
+                if client.get('location'):
+                     st.link_button("🚀 Navigate to Site", client['location'])
+
 
             with col_status:
                 st.write("**Project Status**")
@@ -230,10 +239,12 @@ with tab1:
                 if st.button("Update Status", key=f"btn_st_{client['id']}"):
                     updates = {"status": new_status}
                     if start_date_val: updates["start_date"] = start_date_val.isoformat()
-                    run_query(supabase.table("clients").update(updates).eq("id", client['id']))
-                    st.success("Status Updated!")
-                    time.sleep(0.5)
-                    st.rerun()
+                    
+                    res = run_query(supabase.table("clients").update(updates).eq("id", client['id']))
+                    if res:
+                        st.success("Status Updated!")
+                        time.sleep(0.5)
+                        st.rerun()
 
             # --- DASHBOARD ESTIMATE VIEW ---
             if client.get('internal_estimate'):
@@ -270,7 +281,6 @@ with tab1:
                         
                         pdf_bytes = create_pdf(client['name'], saved_items, saved_days, labor_total, grand_total)
                         
-                        # FIX: UNIQUE KEY ADDED HERE
                         st.download_button(
                             label="📄 Download PDF",
                             data=pdf_bytes,
@@ -285,13 +295,14 @@ with tab1:
 with tab2:
     st.subheader("Add New Client")
     
+    # GPS Button - Fixed to allow value to persist
     if st.toggle("📍 Get Current Location", key="tgl_new"):
         loc_button = get_geolocation(component_key="gps_btn_new")
         if loc_button:
             lat = loc_button['coords']['latitude']
             long = loc_button['coords']['longitude']
             st.session_state['new_loc_val'] = f"http://googleusercontent.com/maps.google.com/?q={lat},{long}"
-            st.success("Location Captured! See field below.")
+            st.success("Location Captured!")
 
     with st.form("add_client_form"):
         c1, c2 = st.columns(2)
@@ -303,14 +314,17 @@ with tab2:
         loc = st.text_input("Google Maps Link", value=default_loc)
         
         if st.form_submit_button("Create Client", type="primary"):
-            run_query(supabase.table("clients").insert({
+            # FIX: Verify response before success message
+            res = run_query(supabase.table("clients").insert({
                 "name": name, "phone": phone, "address": address, "location": loc,
                 "status": "Estimate Given", "created_at": datetime.now().isoformat()
             }))
-            st.success(f"Client {name} Added!")
-            if 'new_loc_val' in st.session_state: del st.session_state['new_loc_val']
-            time.sleep(1)
-            st.rerun()
+            
+            if res:
+                st.success(f"Client {name} Added!")
+                if 'new_loc_val' in st.session_state: del st.session_state['new_loc_val']
+                time.sleep(1)
+                st.rerun()
 
 # --- TAB 3: ESTIMATOR ---
 with tab3:
@@ -422,9 +436,11 @@ with tab4:
         new_item = c1.text_input("Item Name")
         rate = c2.number_input("Rate", min_value=0.0)
         if st.form_submit_button("Add Item"):
-            run_query(supabase.table("inventory").insert({"item_name": new_item, "base_rate": rate}))
-            st.success("Added")
-            st.rerun()
+            # FIX: Check response
+            res = run_query(supabase.table("inventory").insert({"item_name": new_item, "base_rate": rate}))
+            if res:
+                st.success("Added")
+                st.rerun()
     inv = run_query(supabase.table("inventory").select("*").order("item_name"))
     if inv and inv.data: st.dataframe(pd.DataFrame(inv.data), use_container_width=True)
     
