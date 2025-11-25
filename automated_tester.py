@@ -116,7 +116,7 @@ def run_tests():
             iframe.get_by_role("tab", name="Estimator").click()
             
             # Wait for the "Select Client" label to be visible before interacting
-            iframe.get_by_text("Select Client").wait_for()
+            iframe.get_by_text("Select Client", exact=True).wait_for()
             
             # Select Client (Streamlit Selectbox is tricky, we click it then type)
             # Find the Selectbox for "Select Client"
