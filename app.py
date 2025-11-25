@@ -175,6 +175,7 @@ tab1, tab2, tab3, tab4 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Esti
 with tab1:
     st.subheader("Active Projects")
     response = run_query(supabase.table("clients").select("*").order("created_at", desc=True))
+    
     if response and response.data:
         df = pd.DataFrame(response.data)
         cols = [c for c in ['name', 'status', 'start_date', 'phone', 'address'] if c in df.columns]
@@ -191,18 +192,16 @@ with tab1:
             
             with c1:
                 st.write("**Edit Details**")
-                
-                # --- STRICT GPS LOGIC ---
+                # GPS BUTTON
                 gps_dash = get_geolocation(component_key=f"gps_dash_{client['id']}")
-                # Unique ID to track last processed GPS data
-                last_gps_id = f"last_gps_{client['id']}"
-                
-                if gps_dash and gps_dash != st.session_state.get(last_gps_id):
-                    st.session_state[last_gps_id] = gps_dash
+                last_gps_key = f"last_gps_dash_{client['id']}"
+                loc_input_key = f"loc_in_dash_{client['id']}"
+
+                if gps_dash and gps_dash != st.session_state.get(last_gps_key):
+                    st.session_state[last_gps_key] = gps_dash
                     lat = gps_dash['coords']['latitude']
                     lng = gps_dash['coords']['longitude']
-                    # Force update the widget key
-                    st.session_state[f"dash_loc_in_{client['id']}"] = f"http://googleusercontent.com/maps.google.com/?q={lat},{lng}"
+                    st.session_state[loc_input_key] = f"http://googleusercontent.com/maps.google.com/?q={lat},{lng}"
                     st.toast("📍 Location Updated!")
                     st.rerun()
 
@@ -211,11 +210,9 @@ with tab1:
                     np = st.text_input("Phone", value=client.get('phone', ''))
                     na = st.text_area("Address", value=client.get('address', ''))
                     
-                    # Bind to session state
-                    loc_key = f"dash_loc_in_{client['id']}"
-                    if loc_key not in st.session_state:
-                        st.session_state[loc_key] = client.get('location', '')
-                    nl = st.text_input("Maps Link", key=loc_key)
+                    if loc_input_key not in st.session_state:
+                        st.session_state[loc_input_key] = client.get('location', '')
+                    nl = st.text_input("Maps Link", key=loc_input_key)
                     
                     if st.form_submit_button("💾 Save Changes"):
                         res = run_query(supabase.table("clients").update({
@@ -249,7 +246,17 @@ with tab1:
                         time.sleep(0.5)
                         st.rerun()
 
-            # --- EDITABLE ESTIMATE (RESTORED) ---
+                # --- DELETE BUTTON ---
+                st.write("") # Spacer
+                with st.expander("🚨 Danger Zone"):
+                    st.warning(f"Permanently delete {client['name']}?")
+                    if st.button("Confirm Delete", type="primary", key=f"del_{client['id']}"):
+                        res = run_query(supabase.table("clients").delete().eq("id", client['id']))
+                        if res:
+                            st.toast("Client Deleted!", icon="🗑️")
+                            time.sleep(1)
+                            st.rerun()
+
             if client.get('internal_estimate'):
                 st.divider()
                 st.subheader("📄 Manage Estimate")
@@ -281,7 +288,11 @@ with tab1:
                     
                     c_save, c_pdf = st.columns(2)
                     if c_save.button("💾 Save Estimate Changes", key=f"sv_{client['id']}"):
-                        new_json = {"items": edited_est.to_dict(orient="records"), "days": s_days, "margins": s_margins}
+                        new_json = {
+                            "items": edited_est.to_dict(orient="records"),
+                            "days": s_days,
+                            "margins": s_margins
+                        }
                         run_query(supabase.table("clients").update({"internal_estimate": new_json}).eq("id", client['id']))
                         st.toast("Estimate Updated!", icon="✅")
                     
