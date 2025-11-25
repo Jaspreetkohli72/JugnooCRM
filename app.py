@@ -158,6 +158,61 @@ def create_pdf(client_name, items, labor_days, labor_total, grand_total):
     
     return pdf.output(dest='S').encode('latin-1')
 
+def create_internal_pdf(client_name, items, labor_days, labor_cost, labor_charged, grand_total, total_profit):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 10, "INTERNAL PROFIT REPORT (CONFIDENTIAL)", ln=True, align='C')
+    pdf.set_font("Arial", '', 10)
+    pdf.cell(0, 10, f"Client: {client_name} | Date: {datetime.now().strftime('%Y-%m-%d')}", ln=True)
+    pdf.ln(5)
+
+    # Headers: Item | Qty | Base | Sell | Net Profit
+    pdf.set_fill_color(220, 220, 220)
+    pdf.set_font("Arial", 'B', 9)
+    pdf.cell(70, 8, "Item Description", 1, 0, 'L', 1)
+    pdf.cell(15, 8, "Qty", 1, 0, 'C', 1)
+    pdf.cell(35, 8, "Base Rate", 1, 0, 'R', 1)
+    pdf.cell(35, 8, "Sold At", 1, 0, 'R', 1)
+    pdf.cell(35, 8, "Profit", 1, 1, 'R', 1)
+
+    pdf.set_font("Arial", '', 9)
+    for item in items:
+        # Handle data types safely
+        qty = float(item.get('Qty', 0))
+        base = float(item.get('Base Rate', 0))
+        total_sell = float(item.get('Total Price', 0))
+        unit_sell = total_sell / qty if qty > 0 else 0
+        row_profit = total_sell - (base * qty)
+        
+        pdf.cell(70, 8, str(item.get('Item', ''))[:35], 1)
+        pdf.cell(15, 8, str(qty), 1, 0, 'C')
+        pdf.cell(35, 8, f"{base:,.2f}", 1, 0, 'R')
+        pdf.cell(35, 8, f"{unit_sell:,.2f}", 1, 0, 'R')
+        pdf.set_text_color(0, 150, 0) # Green
+        pdf.cell(35, 8, f"{row_profit:,.2f}", 1, 1, 'R')
+        pdf.set_text_color(0, 0, 0) # Reset
+
+    # Labor Section
+    labor_profit = labor_charged - labor_cost
+    pdf.ln(5)
+    pdf.set_font("Arial", 'B', 10)
+    pdf.cell(120, 8, f"Labor ({labor_days} Days)", 1, 0, 'R')
+    pdf.cell(35, 8, f"Cost: {labor_cost:,.2f}", 1, 0, 'R')
+    pdf.cell(35, 8, f"Chrg: {labor_charged:,.2f}", 1, 1, 'R')
+
+    # Grand Totals
+    pdf.ln(10)
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(120, 10, "TOTAL REVENUE:", 1, 0, 'R')
+    pdf.cell(70, 10, f"Rs. {grand_total:,.2f}", 1, 1, 'R')
+    
+    pdf.cell(120, 10, "NET PROFIT:", 1, 0, 'R')
+    pdf.set_text_color(0, 150, 0)
+    pdf.cell(70, 10, f"Rs. {total_profit:,.2f}", 1, 1, 'R')
+
+    return pdf.output(dest='S').encode('latin-1')
+
 # ---------------------------
 # 4. MAIN UI
 # ---------------------------
@@ -192,22 +247,18 @@ with tab1:
             
             with c1:
                 st.write("**Edit Details**")
-                
-                # --- MANUAL GPS LOGIC (DASHBOARD) ---
-                st.write("📍 Location Tools")
-                # 1. Unique component key to prevent conflicts
+                # GPS BUTTON (Manual Only)
                 gps_dash = get_geolocation(component_key=f"gps_dash_{client['id']}")
-                
-                # 2. Show result BUT DO NOT TOUCH INPUT FIELD automatically
-                if gps_dash:
+                last_gps_key = f"last_gps_dash_{client['id']}"
+                loc_input_key = f"loc_in_dash_{client['id']}"
+
+                if gps_dash and gps_dash != st.session_state.get(last_gps_key):
+                    st.session_state[last_gps_key] = gps_dash
                     lat = gps_dash['coords']['latitude']
                     lng = gps_dash['coords']['longitude']
-                    st.caption(f"Detected: {lat:.4f}, {lng:.4f}")
-                    
-                    # 3. User must click this to apply changes
-                    if st.button("⬇️ Paste to Maps Link", key=f"paste_{client['id']}"):
-                        new_link = f"http://googleusercontent.com/maps.google.com/?q={lat},{lng}"
-                        st.session_state[f"loc_in_{client['id']}"] = new_link
+                    st.info(f"📍 Found: {lat:.4f}, {lng:.4f}")
+                    if st.button("⬇️ Paste Location", key=f"pst_{client['id']}"):
+                        st.session_state[loc_input_key] = f"http://googleusercontent.com/maps.google.com/?q={lat},{lng}"
                         st.rerun()
 
                 with st.form("edit_details"):
@@ -215,12 +266,10 @@ with tab1:
                     np = st.text_input("Phone", value=client.get('phone', ''))
                     na = st.text_area("Address", value=client.get('address', ''))
                     
-                    # 4. Input reads from Session State if button clicked, else DB
-                    loc_key = f"loc_in_{client['id']}"
-                    if loc_key not in st.session_state:
-                         st.session_state[loc_key] = client.get('location', '')
-                    
-                    nl = st.text_input("Maps Link", key=loc_key)
+                    # Bind to session state
+                    if loc_input_key not in st.session_state:
+                        st.session_state[loc_input_key] = client.get('location', '')
+                    nl = st.text_input("Maps Link", key=loc_input_key)
                     
                     if st.form_submit_button("💾 Save Changes"):
                         res = run_query(supabase.table("clients").update({
@@ -228,11 +277,8 @@ with tab1:
                         }).eq("id", client['id']))
                         if res and res.data:
                             st.success("Updated!")
-                            # Clear key to prevent sticking
-                            del st.session_state[loc_key]
                             time.sleep(0.5)
                             st.rerun()
-                            
                 if client.get('location'):
                     st.link_button("🚀 Navigate to Site", client['location'])
 
@@ -256,23 +302,24 @@ with tab1:
                         st.success("Status Saved!")
                         time.sleep(0.5)
                         st.rerun()
+                        
+                # Delete Button
+                with st.expander("Danger Zone"):
+                    if st.button("Delete Client", key=f"del_{client['id']}"):
+                        run_query(supabase.table("clients").delete().eq("id", client['id']))
+                        st.success("Deleted")
+                        time.sleep(1)
+                        st.rerun()
 
-                # --- DELETE BUTTON ---
-                st.write("") # Spacer
-                with st.expander("🚨 Danger Zone"):
-                    st.warning(f"Permanently delete {client['name']}?")
-                    if st.button("Confirm Delete", type="primary", key=f"del_{client['id']}"):
-                        res = run_query(supabase.table("clients").delete().eq("id", client['id']))
-                        if res:
-                            st.toast("Client Deleted!", icon="🗑️")
-                            time.sleep(1)
-                            st.rerun()
-
+            # --- BILL GENERATION LOGIC (Work Done) ---
             if client.get('internal_estimate'):
                 st.divider()
-                st.subheader("📄 Manage Estimate")
-                est_data = client['internal_estimate']
                 
+                is_work_done = (client.get('status') == "Work Done")
+                header_text = "📄 Final Bill Generator" if is_work_done else "📄 Manage Estimate"
+                st.subheader(header_text)
+                
+                est_data = client['internal_estimate']
                 s_items = est_data.get('items', []) if isinstance(est_data, dict) else (est_data if isinstance(est_data, list) else [])
                 s_days = est_data.get('days', 1.0) if isinstance(est_data, dict) else 1.0
                 s_margins = est_data.get('margins') if isinstance(est_data, dict) else None
@@ -280,35 +327,64 @@ with tab1:
                 if s_items:
                     idf = pd.DataFrame(s_items)
                     if "Total Price" not in idf.columns: idf["Total Price"] = 0.0
+                    if "Base Rate" not in idf.columns: idf["Base Rate"] = 0.0
                     
+                    # Editable Grid
                     edited_est = st.data_editor(idf, num_rows="dynamic", use_container_width=True, key=f"de_{client['id']}")
                     
+                    # --- CALCULATIONS ---
                     gs = get_settings()
-                    mat = edited_est['Total Price'].sum()
-                    lab_raw = float(s_days) * float(gs.get('daily_labor_cost', 1000))
-                    raw_grand = mat + lab_raw
                     
-                    rounded_grand = math.ceil(raw_grand / 100) * 100
-                    delta = rounded_grand - raw_grand
-                    disp_lab = lab_raw + delta
+                    # 1. Material
+                    mat_sell = edited_est['Total Price'].sum()
+                    mat_cost = (edited_est['Base Rate'] * edited_est['Qty']).sum()
                     
+                    # 2. Labor
+                    daily_cost = float(gs.get('daily_labor_cost', 1000))
+                    labor_actual_cost = float(s_days) * daily_cost
+                    
+                    # 3. Grand Total & Rounding
+                    raw_grand_total = mat_sell + labor_actual_cost
+                    rounded_grand_total = math.ceil(raw_grand_total / 100) * 100
+                    rounding_profit = rounded_grand_total - raw_grand_total
+                    
+                    # 4. Displayed Labor (Hides rounding profit)
+                    labor_charged_display = labor_actual_cost + rounding_profit
+                    
+                    # 5. Total Profit
+                    total_profit = (mat_sell - mat_cost) + rounding_profit # Labor is pass-through + rounding
+                    
+                    # UI Metrics
                     m1, m2, m3 = st.columns(3)
-                    m1.metric("Material", f"₹{mat:,.0f}")
-                    m2.metric("Labor", f"₹{disp_lab:,.0f}", help=f"Includes Rounding: +₹{delta:.0f}")
-                    m3.metric("Grand Total", f"₹{rounded_grand:,.0f}")
+                    m1.metric("Material Total", f"₹{mat_sell:,.0f}")
+                    m2.metric("Labor + Rounding", f"₹{labor_charged_display:,.0f}")
+                    m3.metric("Grand Total", f"₹{rounded_grand_total:,.0f}")
                     
-                    c_save, c_pdf = st.columns(2)
-                    if c_save.button("💾 Save Estimate Changes", key=f"sv_{client['id']}"):
+                    # Save Button
+                    if st.button("💾 Save Changes", key=f"sv_{client['id']}"):
                         new_json = {
                             "items": edited_est.to_dict(orient="records"),
                             "days": s_days,
                             "margins": s_margins
                         }
                         run_query(supabase.table("clients").update({"internal_estimate": new_json}).eq("id", client['id']))
-                        st.toast("Estimate Updated!", icon="✅")
+                        st.toast("Saved!", icon="✅")
                     
-                    pdf_bytes = create_pdf(client['name'], edited_est.to_dict(orient="records"), s_days, disp_lab, rounded_grand)
-                    c_pdf.download_button("📄 Download PDF", pdf_bytes, f"Est_{client['name']}.pdf", "application/pdf", key=f"pdf_{client['id']}")
+                    # PDF Generation
+                    st.write("#### 📥 Download Bills")
+                    c_pdf1, c_pdf2 = st.columns(2)
+                    
+                    # 1. Client Bill (Clean)
+                    pdf_client = create_pdf(client['name'], edited_est.to_dict(orient="records"), s_days, labor_charged_display, rounded_grand_total)
+                    c_pdf1.download_button("📄 Client Invoice", pdf_client, f"Invoice_{client['name']}.pdf", "application/pdf", key=f"pdf_c_{client['id']}")
+                    
+                    # 2. Internal Bill (Detailed) - ONLY if Work Done
+                    if is_work_done:
+                        pdf_internal = create_internal_pdf(client['name'], edited_est.to_dict(orient="records"), s_days, labor_actual_cost, labor_charged_display, rounded_grand_total, total_profit)
+                        c_pdf2.download_button("💼 Internal Report (With Profit)", pdf_internal, f"Internal_{client['name']}.pdf", "application/pdf", key=f"pdf_i_{client['id']}")
+                    else:
+                        c_pdf2.info("Mark status as 'Work Done' to generate Internal Profit Report.")
+                        
                 else:
                     st.warning("Estimate Empty")
 
