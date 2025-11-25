@@ -75,6 +75,9 @@ def run_tests():
             iframe.get_by_label("Rate").fill("500")
             iframe.get_by_role("button", name="Add Item").click()
             
+            # AGGRESSIVE SLEEP: Wait for st.rerun() to complete and UI to stabilize
+            time.sleep(5) 
+            
             # After adding item, wait for the app to rerun and re-render the settings page
             iframe.get_by_role("tabpanel", name="⚙️ Settings").locator("#number_input_9").wait_for(state="visible", timeout=30000)
             
@@ -101,9 +104,12 @@ def run_tests():
             # Create Client
             client_name = "TEST_BOT_CLIENT"
             iframe.get_by_label("Client Name").fill(client_name)
-            iframe.get_by_label("Phone Number").fill("9999999999")
+            iframe.get_by_label("Phone Number").fill(client_name) # Fill phone number with client name to differentiate
             iframe.get_by_label("Address").fill("123 Automated Test Lane")
             iframe.get_by_role("button", name="Create Client").click()
+            
+            # AGGRESSIVE SLEEP: Wait for st.rerun() to complete and UI to stabilize
+            time.sleep(5)
             
             # Wait for success message
             iframe.get_by_text(f"Client {client_name} Added!").wait_for()
@@ -174,6 +180,10 @@ def run_tests():
             # Test Edit Details
             iframe.get_by_label("Name", exact=True).fill(client_name + "_EDITED")
             iframe.get_by_role("button", name="Save Changes").click()
+            
+            # AGGRESSIVE SLEEP: Wait for st.rerun() to complete and UI to stabilize
+            time.sleep(5)
+            
             iframe.get_by_text("Details Updated!").wait_for()
             log_result("Client Update", "PASS", "Client details edited successfully")
 
