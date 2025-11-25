@@ -41,9 +41,7 @@ def run_tests():
 
             # 2. Locate the Streamlit iframe
             print("🔍 Looking for Streamlit iframe...")
-            iframe_locator = page.locator('iframe[title="streamlitApp"]')
-            iframe_locator.wait_for(timeout=120000)
-            iframe = iframe_locator.frame_locator()
+            iframe = page.frame_locator('iframe[title="streamlitApp"]')
             
             # 3. Wait for and fill inputs within the iframe
             print("🔍 Looking for Login Form within iframe...")
@@ -81,16 +79,14 @@ def run_tests():
             page.goto(APP_URL, timeout=180000)
             
             print("... looking for iframe on mobile...")
-            iframe_locator = page.locator('iframe[title="streamlitApp"]')
-            iframe_locator.wait_for(timeout=120000)
-            iframe = iframe_locator.frame_locator()
+            iframe = page.frame_locator('iframe[title="streamlitApp"]')
 
             print("... waiting for app to render (2 min timeout)...")
             iframe.get_by_label("Username").wait_for(timeout=120000)
             time.sleep(5) 
             
             # Check CSS
-            bg_color = iframe.evaluate("window.getComputedStyle(document.querySelector('.stApp')).backgroundColor")
+            bg_color = iframe.locator(".stApp").evaluate("node => window.getComputedStyle(node).backgroundColor")
             # Dark mode is rgb(14, 17, 23)
             if "14, 17, 23" in bg_color:
                 log_result("Mobile UI", "PASS", "Background is Dark #0E1117")
