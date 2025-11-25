@@ -78,6 +78,9 @@ def run_tests():
             # After adding item, wait for the app to rerun and re-render the settings page
             iframe.get_by_label("Daily Labor Charge (₹)").wait_for(state="visible", timeout=30000)
             
+            # Wait for the st.dataframe itself to be visible and stable
+            iframe.locator("div[data-testid='stDataFrame']").wait_for(state="visible", timeout=30000)
+
             # Verify Table Update by waiting for the text to appear
             iframe.get_by_text(test_item_name).wait_for(state="visible", timeout=30000)
             log_result("Inventory CRUD", "PASS", f"Added item '{test_item_name}'")
