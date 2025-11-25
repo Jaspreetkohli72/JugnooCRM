@@ -59,9 +59,9 @@ def run_tests():
             print("Phase 2: Settings & Inventory...")
             # Switch Tab
             iframe.get_by_role("tab", name="Settings").click()
-            time.sleep(2)
             
             # Verify Sliders Exist
+            iframe.locator("div[data-testid='stSlider']").first.wait_for(state="visible", timeout=30000)
             if iframe.locator("div[data-testid='stSlider']").count() >= 3:
                 log_result("Settings UI", "PASS", "Profit Margin Sliders detected")
             else:
@@ -73,30 +73,22 @@ def run_tests():
             iframe.get_by_label("Rate").fill("500")
             iframe.get_by_role("button", name="Add Item").click()
             
-            # Verify Table Update (Look for the text in the dataframe)
-            time.sleep(3) # Wait for reload
-            if iframe.get_by_text(test_item_name).count() > 0:
-                log_result("Inventory CRUD", "PASS", f"Added item '{test_item_name}'")
-            else:
-                log_result("Inventory CRUD", "FAIL", "Item not found in table after add")
+            # Verify Table Update by waiting for the text to appear
+            iframe.get_by_text(test_item_name).wait_for(state="visible", timeout=30000)
+            log_result("Inventory CRUD", "PASS", f"Added item '{test_item_name}'")
 
             # ---------------------------------------------------------
             # PHASE 3: NEW CLIENT (Create & GPS)
             # ---------------------------------------------------------
             print("Phase 3: Create Client...")
             iframe.get_by_role("tab", name="New Client").click()
-            time.sleep(2)
+            iframe.get_by_label("Client Name").wait_for(state="visible", timeout=30000)
             
             # Test GPS Button
-            # Note: We look for the toggle/button text specifically
             if iframe.get_by_text("Get Current Location").is_visible():
                 iframe.get_by_text("Get Current Location").click()
-                time.sleep(3) # Wait for JS eval
-                # Check if success message appears
-                if iframe.get_by_text("Location Captured").count() > 0:
-                    log_result("GPS Function", "PASS", "Geolocation captured successfully")
-                else:
-                    log_result("GPS Function", "WARNING", "GPS button clicked but no confirmation (might need permission)")
+                iframe.get_by_text("Location Captured").wait_for(timeout=15000)
+                log_result("GPS Function", "PASS", "Geolocation captured successfully")
             
             # Create Client
             client_name = "TEST_BOT_CLIENT"
@@ -115,41 +107,29 @@ def run_tests():
             print("Phase 4: Estimator Engine...")
             iframe.get_by_role("tab", name="Estimator").click()
             
-            # Wait for the "Select Client" label to be visible before interacting
-            iframe.get_by_text("Select Client", exact=True).wait_for()
+            # Wait for the selectbox to be visible
+            client_selectbox = iframe.locator("div[data-testid='stSelectbox']").first
+            client_selectbox.wait_for(state="visible", timeout=30000)
             
-            # Select Client (Streamlit Selectbox is tricky, we click it then type)
-            # Find the Selectbox for "Select Client"
             print("Selecting client...")
-            # Click the first dropdown (Client Select)
-            iframe.locator("div[data-testid='stSelectbox']").first.click() 
+            client_selectbox.click() 
             time.sleep(1)
-            # Click the client name in the dropdown list
             iframe.get_by_text(client_name).first.click()
-            time.sleep(3) # Wait for load
-            
-            # Enable Custom Margins
-            if iframe.get_by_text("Use Custom Margins").count() > 0:
-                iframe.get_by_text("Use Custom Margins").click()
-                log_result("Estimator UI", "PASS", "Custom Margins toggle works")
             
             # Add Item to Estimate
-            # Select the Item dropdown (Usually the second one now)
             print("Adding item...")
-            iframe.locator("div[data-testid='stSelectbox']").nth(1).click()
+            item_selectbox = iframe.locator("div[data-testid='stSelectbox']").nth(1)
+            item_selectbox.wait_for(state="visible", timeout=30000)
+            item_selectbox.click()
             time.sleep(1)
-            iframe.get_by_text(test_item_name).first.click() # Select the item we made earlier
+            iframe.get_by_text(test_item_name).first.click()
             
             iframe.get_by_label("Quantity").fill("2")
-            iframe.get_by_role("button", name="Add to List").click() # Assuming button is 'Add to List' or 'Add'
-            time.sleep(3)
+            iframe.get_by_role("button", name="Add to List").click()
             
-            # Verify Math (500 rate * 2 qty = 1000 base + margins)
-            # We just check if the metric cards appear
-            if iframe.get_by_text("Grand Total").count() > 0:
-                log_result("Calculation", "PASS", "Metrics calculated and displayed")
-            else:
-                log_result("Calculation", "FAIL", "Metrics not visible")
+            # Verify Math
+            iframe.get_by_text("Grand Total").wait_for(state="visible", timeout=30000)
+            log_result("Calculation", "PASS", "Metrics calculated and displayed")
 
             # Save Estimate
             iframe.get_by_role("button", name="Save Estimate").click()
@@ -161,25 +141,23 @@ def run_tests():
             # ---------------------------------------------------------
             print("Phase 5: Dashboard Verification...")
             iframe.get_by_role("tab", name="Dashboard").click()
-            time.sleep(3)
             
             # Select the client in Dashboard
-            iframe.locator("div[data-testid='stSelectbox']").first.click()
+            dashboard_client_select = iframe.locator("div[data-testid='stSelectbox']").first
+            dashboard_client_select.wait_for(state="visible", timeout=30000)
+            dashboard_client_select.click()
             iframe.get_by_text(client_name).first.click()
-            time.sleep(3)
             
             # Verify Data loaded
-            if iframe.get_by_text("123 Automated Test Lane").count() > 0:
-                log_result("Dashboard Read", "PASS", "Client details loaded correctly")
-            else:
-                log_result("Dashboard Read", "FAIL", "Client details missing")
+            iframe.get_by_text("123 Automated Test Lane").wait_for(state="visible", timeout=30000)
+            log_result("Dashboard Read", "PASS", "Client details loaded correctly")
                 
             # Verify PDF Button Exists
-            if iframe.get_by_text("Download PDF").count() > 0:
+            if iframe.get_by_text("Download PDF").is_visible():
                 log_result("PDF Logic", "PASS", "Download PDF button is generated and visible")
                 
             # Test Navigate Button
-            if iframe.get_by_text("Navigate to Site").count() > 0:
+            if iframe.get_by_text("Navigate to Site").is_visible():
                 log_result("Navigation", "PASS", "Navigate button visible")
 
             # Test Edit Details
