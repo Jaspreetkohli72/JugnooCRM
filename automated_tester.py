@@ -18,31 +18,32 @@ def log_result(test_name, status, message=""):
 
 def run_tests():
     print(f"🚀 Starting Tests on LIVE URL: {APP_URL}...")
+    print("👀 Browser window will open shortly...")
     
     with sync_playwright() as p:
         # --- TEST 1: DESKTOP LOGIN ---
         try:
-            # Launch browser (Headless=False lets you see it running if you want, set to True for speed) 
-            browser = p.chromium.launch(headless=True) 
+            # HEADLESS=FALSE makes the browser visible
+            # SLOW_MO=1000 adds a 1 second pause between actions so you can see what's happening
+            browser = p.chromium.launch(headless=False, slow_mo=1000) 
             page = browser.new_page()
             
-            # Increased timeout to 30s for Cloud latency
-            page.goto(APP_URL, timeout=60000)
+            print("⏳ Waiting for app to wake up (this can take up to 90s)...")
+            # Increased timeout to 90s for Cloud cold start
+            page.goto(APP_URL, timeout=90000)
             
             # Wait for Streamlit to wake up and load inputs
-            print("Waiting for app to load...")
-            page.wait_for_selector("input[aria-label='Username']", state="visible", timeout=30000)
+            page.wait_for_selector("input[aria-label='Username']", state="visible", timeout=90000)
             
             # Perform Login
             page.fill("input[aria-label='Username']", USERNAME)
             page.fill("input[aria-label='Password']", PASSWORD)
             
             # Click Login Button
-            # Using a more robust selector for Streamlit buttons
             page.get_by_role("button", name="Login").click()
             
             # Wait for Dashboard to appear (Look for 'Active Projects')
-            page.wait_for_selector("text=Active Projects", timeout=30000)
+            page.wait_for_selector("text=Active Projects", timeout=60000)
             log_result("Live Login", "PASS", "Successfully logged into Jugnoo CRM Cloud")
             
             # Check PDF Button
@@ -58,20 +59,21 @@ def run_tests():
 
         # --- TEST 2: MOBILE VIEW (WHITE BARS CHECK) ---
         try:
+            print("📱 Switching to iPhone Emulation...")
             iphone = p.devices['iPhone 12']
-            browser = p.chromium.launch(headless=True)
+            # Headless is False here too so you can verify the bars yourself visually
+            browser = p.chromium.launch(headless=False, slow_mo=1000)
             context = browser.new_context(**iphone)
             page = context.new_page()
             
-            page.goto(APP_URL, timeout=60000)
-            page.wait_for_selector("input[aria-label='Username']", timeout=30000)
+            page.goto(APP_URL, timeout=90000)
+            page.wait_for_selector("input[aria-label='Username']", timeout=90000)
             
             # Check Login Screen Background CSS
-            # We check the computed style of the main .stApp container
             bg_color = page.evaluate("window.getComputedStyle(document.querySelector('.stApp')).backgroundColor")
             
             # rgb(14, 17, 23) is the Hex #0E1117 (Dark Theme)
-            if "14, 17, 23" in bg_color or "14, 17, 23" in bg_color:
+            if "14, 17, 23" in bg_color:
                 log_result("Mobile Visuals", "PASS", "Background is Dark (No White Bars)")
             else:
                 log_result("Mobile Visuals", "FAIL", f"Background detected as {bg_color} (Expected Dark)")
@@ -81,7 +83,8 @@ def run_tests():
             log_result("Mobile Simulation", "FAIL", str(e))
 
     # --- GENERATE REPORT ---
-    with open(REPORT_FILE, "w") as f:
+    # encoding="utf-8" FIXES THE WINDOWS CRASH
+    with open(REPORT_FILE, "w", encoding="utf-8") as f:
         f.write(f"""
         <html>
         <body style="font-family: sans-serif; background: #1e1e1e; color: #e0e0e0; padding: 20px;">
