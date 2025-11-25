@@ -8,6 +8,10 @@ USERNAME = "Jaspreet"
 PASSWORD = "CRMJugnoo@123"
 REPORT_FILE = "test_report.html"
 
+# EXACT XPATHS PROVIDED BY USER
+XPATH_USER = '/html/body/div/div[1]/div[1]/div/div/div/section/div[1]/div/div[5]/div/div[2]/div/div/div/div/div[2]/div/div/div/input'
+XPATH_PASS = '/html/body/div/div[1]/div[1]/div/div/div/section/div[1]/div/div[5]/div/div[2]/div/div/div/div/div[3]/div/div/div/input'
+
 results = []
 
 def log_result(test_name, status, message=""):
@@ -22,28 +26,25 @@ def run_tests():
     with sync_playwright() as p:
         # --- TEST 1: DESKTOP LOGIN ---
         try:
-            # Headless=False to verify visually
             browser = p.chromium.launch(headless=False, slow_mo=1000) 
             page = browser.new_page()
             
-            print("⏳ Loading App URL (Timeout set to 3 minutes)...")
+            print("⏳ Loading App URL (Timeout 3 mins)...")
             page.goto(APP_URL, timeout=180000)
             
-            # --- MANUAL WAIT ADDED HERE ---
             print("⏳ Manual Wait: 15 seconds for Streamlit to initialize...")
             time.sleep(15)
-            # ------------------------------
             
-            print("Looking for Username field...")
-            # Using the specific XPaths you provided
-            page.locator('//*[@id="text_input_1"]').wait_for(state="visible", timeout=120000)
+            print("Looking for Username field via Full XPath...")
+            # Wait for the specific element to exist
+            page.locator(XPATH_USER).wait_for(state="visible", timeout=120000)
             
             print("Entering Credentials...")
-            page.locator('//*[@id="text_input_1"]').fill(USERNAME)
-            page.locator('//*[@id="text_input_2"]').fill(PASSWORD)
+            page.locator(XPATH_USER).fill(USERNAME)
+            page.locator(XPATH_PASS).fill(PASSWORD)
             
             # Click Login Button
-            page.get_by_role("button", name="Sign In").click()
+            page.get_by_role("button", name="Login").click()
             
             # Wait for Dashboard
             print("Waiting for Dashboard to render...")
@@ -69,8 +70,8 @@ def run_tests():
             print("⏳ Manual Wait: 15 seconds for Mobile View...")
             time.sleep(15)
             
-            # Wait for content using XPath
-            page.locator('//*[@id="text_input_1"]').wait_for(timeout=120000)
+            # Wait for content using the Full XPath
+            page.locator(XPATH_USER).wait_for(timeout=120000)
             
             # Check Background Color
             bg_color = page.evaluate("window.getComputedStyle(document.querySelector('.stApp')).backgroundColor")
