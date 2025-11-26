@@ -647,7 +647,45 @@ with tab5:
         supplier_resp = run_query(supabase.table("suppliers").select("*").order("name"))
         if supplier_resp and supplier_resp.data:
             df_suppliers = pd.DataFrame(supplier_resp.data)
-            st.dataframe(df_suppliers, use_container_width=True, hide_index=True)
+            
+            edited_suppliers = st.data_editor(df_suppliers, num_rows="dynamic", use_container_width=True, key="sup_editor",
+                                                column_config={
+                                                    "id": st.column_config.Column("ID", disabled=True, width="small"), # Hide but keep value
+                                                    "name": st.column_config.TextColumn("Supplier Name", required=True),
+                                                    "contact_person": st.column_config.TextColumn("Contact Person"),
+                                                    "phone": st.column_config.TextColumn("Phone")
+                                                })
+            
+            if st.button("💾 Save Changes", key="save_sup_changes"):
+                df_to_save = edited_suppliers.copy()
+                # Ensure 'id' is preserved for upsert, handle newly added rows with no ID
+                df_to_save['id'] = df_to_save['id'].replace({None: math.nan}).fillna(0).astype(int) # Set new rows ID to 0 for upsert
+                df_to_save['name'] = df_to_save['name'].fillna("")
+                
+                recs_to_upsert = df_to_save.to_dict(orient="records")
+                
+                errors_occurred = False
+                for record in recs_to_upsert:
+                    if record.get("name"): # Ensure name is not empty for upsert
+                        if record.get("id") == 0: # New row
+                            del record['id'] # Supabase handles id generation for new records
+                            res = run_query(supabase.table("suppliers").insert(record))
+                        else: # Existing row
+                            res = run_query(supabase.table("suppliers").upsert(record))
+                        
+                        if not (res and res.data):
+                            errors_occurred = True
+                            st.error(f"Failed to save supplier: {record.get('name')}")
+                    else:
+                        errors_occurred = True
+                        st.warning(f"Skipped saving a row with empty supplier name.")
+
+                if not errors_occurred:
+                    st.success("Suppliers Updated!")
+                    time.sleep(0.5)
+                    st.rerun()
+                else:
+                    st.warning("Some supplier changes could not be saved.")
         else:
             st.info("No suppliers found.")
 
