@@ -230,11 +230,30 @@ tab1, tab2, tab3, tab5, tab4 = st.tabs(["📋 Dashboard", "➕ New Client", "�
 
 # --- TAB 1: DASHBOARD ---
 with tab1:
-    st.subheader("Active Projects")
+    st.subheader("Client Projects")
+    
+    status_filter = st.radio(
+        "Filter by Status",
+        ('All', 'Active', 'Inactive'),
+        horizontal=True,
+        key="status_filter_radio"
+    )
+
     response = run_query(supabase.table("clients").select("*").order("created_at", desc=True))
     
     if response and response.data:
         df = pd.DataFrame(response.data)
+
+        # Define active and inactive statuses
+        active_statuses = ["Estimate Given", "Order Received", "Work In Progress"]
+        inactive_statuses = ["Work Done", "Closed"]
+        
+        # Apply filter based on radio button selection
+        if status_filter == 'Active':
+            df = df[df['status'].isin(active_statuses)]
+        elif status_filter == 'Inactive':
+            df = df[df['status'].isin(inactive_statuses)]
+
         st.dataframe(df[[c for c in ['name', 'status', 'start_date', 'phone', 'address'] if c in df.columns]], use_container_width=True, hide_index=True)
         st.divider()
         
