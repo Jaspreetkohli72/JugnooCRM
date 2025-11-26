@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import time
 import pandas as pd
 import math
+from supabase.client import F
 
 
 from streamlit_js_eval import get_geolocation
@@ -607,21 +608,8 @@ with tab5:
                     }))
 
                     if res_purchase and res_purchase.data:
-                        # Increment stock_quantity
-                        # Supabase's client 'update' method with a dictionary normally overwrites.
-                        # For incrementing, we might need a direct RPC call or a different update structure.
-                        # Assuming the `supabase-py` client supports an increment-like operation
-                        # for a `NumberColumn` in an update, or a direct `rpc` method if available.
-                        # For now, let's fetch current and then update to be safe, if direct increment fails.
-                        # More idiomatic way: fetch, calculate new value, then update.
-                        # Simplest way which should work with Supabase's client:
-                        current_inv_item = run_query(supabase.table("inventory").select("stock_quantity").eq("item_name", selected_item_name))
-                        if current_inv_item and current_inv_item.data:
-                            current_stock = current_inv_item.data[0].get('stock_quantity', 0)
-                            new_stock = current_stock + purchase_qty
-                            res_stock_update = run_query(supabase.table("inventory").update({"stock_quantity": new_stock}).eq("item_name", selected_item_name))
-                        else:
-                            res_stock_update = None # Indicate failure to fetch current stock
+                        # Perform atomic stock increment
+                        res_stock_update = run_query(supabase.table("inventory").update({"stock_quantity": F("stock_quantity") + purchase_qty}).eq("item_name", selected_item_name))
 
                         if res_stock_update and res_stock_update.data:
                             if update_inventory_base_rate:
@@ -630,7 +618,7 @@ with tab5:
                                     st.success("Purchase Recorded, Stock & Inventory Updated!")
                                     time.sleep(0.5); st.rerun()
                                 else:
-                                    st.error("Purchase Recorded, Stock Updated, but failed to update Inventory Base Rate.")
+                                    st.error("Purchase Recorded, but failed to update Inventory Base Rate.")
                             else:
                                 st.success("Purchase Recorded & Stock Updated!")
                                 time.sleep(0.5); st.rerun()
@@ -742,7 +730,8 @@ with tab6:
                 if estimate:
                     labor_days = float(estimate.get('days', 0.0))
                     client_labor_cost = labor_days * daily_labor_cost
-                    total_labor_expense += client_labor_cost
+                    if client.get('status') in ["Work Done", "Closed"]:
+                        total_labor_expense += client_labor_cost
 
                     if client.get('status') in ["Work Done", "Closed"]:
                         items = estimate.get('items', [])
