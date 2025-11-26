@@ -845,33 +845,28 @@ with tab6:
             daily_labor_cost = float(settings.get('daily_labor_cost', 1000.0))
 
             total_revenue = 0.0
-            total_labor_expense = 0.0 # This will track labor cost for all clients
+            total_labor_expense = 0.0
             
             # --- Calculate Revenue and Total Labor Expense ---
             for client in all_clients:
                 estimate = client.get('internal_estimate')
                 if estimate:
-                    # Calculate labor expense for ALL clients (active/closed)
                     labor_days = float(estimate.get('days', 0.0))
                     client_labor_cost = labor_days * daily_labor_cost
                     total_labor_expense += client_labor_cost
 
-                    # Calculate revenue ONLY for 'Work Done' or 'Closed' clients
                     if client.get('status') in ["Work Done", "Closed"]:
                         items = estimate.get('items', [])
                         
-                        # Recalculate material sell price from internal_estimate items
                         material_sell_price_for_client = 0.0
                         for item in items:
                             try:
                                 qty = float(item.get('Qty', 0))
                                 base_rate = float(item.get('Base Rate', 0))
                                 unit = item.get('Unit', 'pcs')
-                                # Use client's specific margins if available, otherwise global.
                                 client_margins = estimate.get('margins')
                                 am_for_client = client_margins if client_margins else settings
                                 
-                                # If custom margins are stored as {'p': val, 'l': val, 'e': val}, convert to full names
                                 if client_margins and 'p' in client_margins:
                                     am_for_client = {
                                         'part_margin': client_margins.get('p', 0),
@@ -887,21 +882,18 @@ with tab6:
                                 else:
                                     material_sell_price_for_client += base_rate * qty * mm_for_client
                             except (ValueError, TypeError):
-                                pass # Skip items with invalid data
+                                pass
 
                         client_raw_grand_total = material_sell_price_for_client + client_labor_cost
                         client_rounded_grand_total = math.ceil(client_raw_grand_total / 100) * 100
                         total_revenue += client_rounded_grand_total
 
-            # --- Calculate Material Expenses from purchase_log ---
             total_material_expense = sum(float(log.get('total_cost', 0.0)) for log in purchase_log_data)
 
-            # --- Net Profit Calculation ---
             total_expenses = total_labor_expense + total_material_expense
             net_profit = total_revenue - total_expenses
             net_profit_margin_percent = (net_profit / total_revenue * 100) if total_revenue != 0 else 0
 
-            # --- UI Layout: KPI Metrics ---
             st.write("#### Key Financial Metrics")
             kpi1, kpi2, kpi3, kpi4 = st.columns(4)
             kpi1.metric("Total Revenue", f"₹{total_revenue:,.0f}")
@@ -911,21 +903,22 @@ with tab6:
 
             st.divider()
 
-            # --- UI Layout: Charts ---
             st.write("#### Financial Overview")
             chart_col1, chart_col2 = st.columns(2)
 
             with chart_col1:
                 st.subheader("Revenue vs Expenses")
-                chart_data_bar = pd.DataFrame({
-                    'Category': ['Revenue', 'Material Expense', 'Labor Expense'],
-                    'Amount': [total_revenue, total_material_expense, total_labor_expense]
-                })
+                # Data Preparation (Bar Chart) - Explicitly cast to float
+                chart_data_bar = pd.DataFrame([
+                    {'Category': 'Revenue', 'Amount': float(total_revenue)},
+                    {'Category': 'Material Expense', 'Amount': float(total_material_expense)},
+                    {'Category': 'Labor Expense', 'Amount': float(total_labor_expense)}
+                ])
                 bar_chart = alt.Chart(chart_data_bar).mark_bar().encode(
                     x=alt.X('Category:N', axis=alt.Axis(title=None, labels=True)),
                     y=alt.Y('Amount:Q', axis=alt.Axis(title="Amount (₹)", labels=True)),
-                    color=alt.Color('Category', scale=alt.Scale(domain=['Revenue', 'Material Expense', 'Labor Expense'], range=['#4CAF50', '#F44336', '#FFC107']), legend=None),
-                    tooltip=['Category', alt.Tooltip('Amount', format='₹,.0f')]
+                    color=alt.Color('Category:N', scale=alt.Scale(domain=['Revenue', 'Material Expense', 'Labor Expense'], range=['#4CAF50', '#F44336', '#FFC107']), legend=None),
+                    tooltip=['Category:N', alt.Tooltip('Amount:Q', format='₹,.0f')]
                 ).properties(
                     title='Total Revenue vs Expenses'
                 ).configure_axis(
@@ -935,17 +928,18 @@ with tab6:
 
             with chart_col2:
                 st.subheader("Cost Split")
-                chart_data_pie = pd.DataFrame({
-                    'Cost Type': ['Material Cost', 'Labor Cost'],
-                    'Amount': [total_material_expense, total_labor_expense]
-                })
-                total_cost_for_pie = total_material_expense + total_labor_expense
+                # Data Preparation (Pie Chart) - Explicitly cast to float
+                chart_data_pie = pd.DataFrame([
+                    {'Cost Type': 'Material Cost', 'Amount': float(total_material_expense)},
+                    {'Cost Type': 'Labor Cost', 'Amount': float(total_labor_expense)}
+                ])
+                total_cost_for_pie = float(total_material_expense) + float(total_labor_expense)
                 if total_cost_for_pie > 0:
                     pie_chart = alt.Chart(chart_data_pie).mark_arc(outerRadius=120).encode(
-                        theta=alt.Theta("Amount", stack=True),
-                        color=alt.Color("Cost Type:N", scale=alt.Scale(domain=['Material Cost', 'Labor Cost'], range=['#F44336', '#FFC107']), legend=alt.Legend(title="Cost Type")),
+                        theta=alt.Theta("Amount:Q", stack=True), # Explicitly :Q
+                        color=alt.Color("Cost Type:N", scale=alt.Scale(domain=['Material Cost', 'Labor Cost'], range=['#F44336', '#FFC107']), legend=alt.Legend(title="Cost Type")), # Explicitly :N
                         order=alt.Order("Amount", sort="descending"),
-                        tooltip=['Cost Type', alt.Tooltip('Amount', format="₹,.0f")] # CRITICAL FIX: Removed stack=True from tooltip
+                        tooltip=['Cost Type:N', alt.Tooltip('Amount:Q', format="₹,.0f"), alt.Tooltip('Amount:Q', format=".1%", title="Percentage")] # Explicitly :N and :Q
                     ).properties(
                         title='Material vs Labor Cost Split'
                     )
