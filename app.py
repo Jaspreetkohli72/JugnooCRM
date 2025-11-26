@@ -242,10 +242,24 @@ with tab1:
             c1, c2 = st.columns([1.5, 1])
             with c1:
                 st.write("**Edit Details**")
+                loc = get_geolocation(key=f"geo_tab1_{client['id']}")
+                gmaps = ""
+                if loc:
+                    st.write(f"Detected: {loc['coords']['latitude']}, {loc['coords']['longitude']}")
+                    if st.button("Paste Location", key=f"paste_loc_tab1_{client['id']}"):
+                        gmaps = f"http://googleusercontent.com/maps.google.com/?q={loc['coords']['latitude']},{loc['coords']['longitude']}"
+                        st.session_state[f"loc_in_dash_{client['id']}"] = gmaps
+                
                 with st.form("edit_details"):
                     nn, np, na = st.text_input("Name", value=client['name']), st.text_input("Phone", value=client.get('phone', '')), st.text_area("Address", value=client.get('address', ''))
+                    maps_link_key = f"loc_in_dash_{client['id']}"
+                    current_maps_link = client.get('maps_link', '')
+                    if maps_link_key in st.session_state:
+                        current_maps_link = st.session_state[maps_link_key]
+                    ml = st.text_input("Maps Link", value=current_maps_link, key=maps_link_key)
+
                     if st.form_submit_button("💾 Save Changes"):
-                        res = run_query(supabase.table("clients").update({"name": nn, "phone": np, "address": na}).eq("id", client['id']))
+                        res = run_query(supabase.table("clients").update({"name": nn, "phone": np, "address": na, "maps_link": ml}).eq("id", client['id']))
                         if res and res.data: st.success("Updated!"); time.sleep(0.5); st.rerun()
             with c2:
                 st.write("**Project Status**")
@@ -263,6 +277,10 @@ with tab1:
                     if s_date: upd["start_date"] = s_date.isoformat()
                     res = run_query(supabase.table("clients").update(upd).eq("id", client['id']))
                     if res and res.data: st.success("Status Saved!"); time.sleep(0.5); st.rerun()
+
+            st.expander("Danger Zone").button("Delete Client", type="secondary", use_container_width=True, on_click=lambda: run_query(supabase.table("clients").delete().eq("id", client['id'])), key=f"del_{client['id']}")
+            if st.session_state.get(f"del_{client['id']}"): # Check if button was clicked
+                st.success("Client Deleted!"); time.sleep(1); st.rerun()
 
             if client.get('internal_estimate'):
                 st.divider()
@@ -356,12 +374,27 @@ with tab1:
 # --- TAB 2: NEW CLIENT ---
 with tab2:
     st.subheader("Add New Client")
+    
+    loc_new_client = get_geolocation(key="geo_tab2_new_client")
+    gmaps_new_client = ""
+    if loc_new_client:
+        st.write(f"Detected: {loc_new_client['coords']['latitude']}, {loc_new_client['coords']['longitude']}")
+        if st.button("Paste Location to Form", key="paste_loc_tab2_new_client"):
+            gmaps_new_client = f"http://googleusercontent.com/maps.google.com/?q={loc_new_client['coords']['latitude']},{loc_new_client['coords']['longitude']}"
+            st.session_state["loc_in_new_client"] = gmaps_new_client
+    
     with st.form("new_client"):
         c1, c2 = st.columns(2)
         nm, ph = c1.text_input("Client Name"), c2.text_input("Phone")
         ad = st.text_area("Address")
+        maps_link_new_client_key = "loc_in_new_client"
+        current_maps_link_new_client = ""
+        if maps_link_new_client_key in st.session_state:
+            current_maps_link_new_client = st.session_state[maps_link_new_client_key]
+        ml_new_client = st.text_input("Google Maps Link", value=current_maps_link_new_client, key=maps_link_new_client_key)
+        
         if st.form_submit_button("Create Client", type="primary"):
-            res = run_query(supabase.table("clients").insert({"name": nm, "phone": ph, "address": ad, "status": "Estimate Given", "created_at": datetime.now().isoformat()}))
+            res = run_query(supabase.table("clients").insert({"name": nm, "phone": ph, "address": ad, "maps_link": ml_new_client, "status": "Estimate Given", "created_at": datetime.now().isoformat()}))
             if res and res.data: st.success(f"Client {nm} Added!"); time.sleep(1); st.rerun()
             else: st.error("Save Failed.")
 
