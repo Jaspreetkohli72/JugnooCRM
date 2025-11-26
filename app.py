@@ -1,8 +1,6 @@
 import streamlit as st
 from supabase import create_client
-from supabase.client import Client as SupabaseClient, PostgrestAPIResponse, F
 from utils import helpers
-from supabase.client import F
 
 from datetime import datetime, timedelta
 import time
