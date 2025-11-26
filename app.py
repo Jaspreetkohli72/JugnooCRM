@@ -667,7 +667,7 @@ with tab5:
             selected_item_name = st.selectbox("Select Item", list(inventory_options.keys()), key="pur_item_sel")
 
             default_rate = inventory_options.get(selected_item_name, {}).get('base_rate', 0.0)
-            purchase_rate = st.number_input("Buying Rate", min_value=0.0, value=float(default_rate), step=0.01, key="pur_rate")
+            purchase_rate = st.number_input("Buying Rate", min_value=0.0, value=float(default_rate), step=0.01, key=f"rate_{selected_item_name}")
             purchase_qty = st.number_input("Quantity", min_value=0.0, value=1.0, step=1.0, format="%.2f", key="pur_qty")
             update_inventory_base_rate = st.checkbox("Update Inventory Base Rate?", value=True, key="pur_update_inv")
 
