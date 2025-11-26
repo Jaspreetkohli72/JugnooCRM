@@ -62,12 +62,13 @@ cookie_manager = get_manager()
 
 def check_login(username, password):
     try:
-        res = run_query(supabase.table("users").select("password").eq("username", username))
+        res = supabase.table("users").select("password").eq("username", username).execute()
         if res and res.data:
             hashed_password = res.data[0]['password']
             return auth.verify_password(password, hashed_password)
         return False
-    except:
+    except Exception as e:
+        st.error(f"Database Error: {e}")
         return False
 
 def login_section():
@@ -159,8 +160,8 @@ with tab1:
         df = pd.DataFrame(response.data)
 
         # Define active and inactive statuses
-        active_statuses = ["Estimate Given", "Order Received", "Work In Progress"]
-        inactive_statuses = ["Work Done", "Closed"]
+        active_statuses = helpers.ACTIVE_STATUSES
+        inactive_statuses = helpers.INACTIVE_STATUSES
         
         # Apply filter based on radio button selection
         if status_filter == 'Active':
@@ -241,12 +242,7 @@ with tab1:
                     st.session_state[ssk_dash] = s_items
 
                 if st.session_state[ssk_dash]:
-                    idf = pd.DataFrame(st.session_state[ssk_dash])
-                    for col in ["Qty", "Item", "Unit", "Base Rate", "Total Price", "Unit Price"]:
-                        if col not in idf.columns: idf[col] = "" if col in ["Item", "Unit"] else 0.0
-                    
-                    column_order = ['Qty', 'Item', 'Unit', 'Base Rate', 'Unit Price', 'Total Price']
-                    idf = idf.reindex(columns=column_order, fill_value="")
+                    idf = helpers.create_item_dataframe(st.session_state[ssk_dash])
 
                     edited_est = st.data_editor(idf, num_rows="dynamic", use_container_width=True, key=f"de_{client['id']}",
                                                 column_config={
@@ -298,7 +294,7 @@ with tab1:
                         for col in ['Item', 'Unit']: df_to_save[col] = df_to_save[col].fillna("")
                         new_json = {"items": df_to_save.to_dict(orient="records"), "days": s_days, "margins": est_data.get('margins')} # Save original margins structure
                         try:
-                            run_query(supabase.table("clients").update({"internal_estimate": new_json}).eq("id", client['id']))
+                            supabase.table("clients").update({"internal_estimate": new_json}).eq("id", client['id']).execute()
                             st.toast("Saved!", icon="✅")
                         except Exception as e:
                             st.error(f"Database Error: {e}")
@@ -428,12 +424,7 @@ with tab3:
                     st.rerun()
 
         if st.session_state[ssk]:
-            df = pd.DataFrame(st.session_state[ssk])
-            for col in ["Qty", "Base Rate", "Unit", "Item", "Total Price", "Unit Price"]:
-                if col not in df.columns: df[col] = "" if col in ["Item", "Unit"] else 0.0
-            
-            column_order = ['Qty', 'Item', 'Unit', 'Base Rate', 'Unit Price', 'Total Price']
-            df = df.reindex(columns=column_order, fill_value="")
+            df = helpers.create_item_dataframe(st.session_state[ssk])
 
             st.write("#### Items")
             edf = st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"t_{tc['id']}", 
@@ -608,18 +599,21 @@ with tab4:
         np = st.text_input("New Password", type="password")
         if st.form_submit_button("Update Password"):
             # First, check if the old password is correct
-            res = run_query(supabase.table("users").select("password").eq("username", st.session_state.username))
-            if res and res.data:
-                current_password = res.data[0]['password']
-                if auth.verify_password(op, current_password):
-                    # If old password is correct, update to new password
-                    new_hashed_password = auth.hash_password(np)
-                    run_query(supabase.table("users").update({"password": new_hashed_password}).eq("username", st.session_state.username))
-                    st.success("Password updated successfully!")
+            try:
+                res = supabase.table("users").select("password").eq("username", st.session_state.username).execute()
+                if res and res.data:
+                    current_password = res.data[0]['password']
+                    if auth.verify_password(op, current_password):
+                        # If old password is correct, update to new password
+                        new_hashed_password = auth.hash_password(np)
+                        supabase.table("users").update({"password": new_hashed_password}).eq("username", st.session_state.username).execute()
+                        st.success("Password updated successfully!")
+                    else:
+                        st.error("Incorrect old password.")
                 else:
-                    st.error("Incorrect old password.")
-            else:
-                st.error("Could not verify user.")
+                    st.error("Could not verify user.")
+            except Exception as e:
+                st.error(f"Database Error: {e}")
 
 # --- TAB 5: SUPPLIERS ---
 with tab5:
@@ -677,7 +671,11 @@ with tab5:
 
                     if res_purchase and res_purchase.data:
                         # Perform atomic stock increment
-                        res_stock_update = run_query(supabase.table("inventory").update({"stock_quantity": F("stock_quantity") + purchase_qty}).eq("item_name", selected_item_name))
+                        try:
+                            res_stock_update = supabase.table("inventory").update({"stock_quantity": F("stock_quantity") + purchase_qty}).eq("item_name", selected_item_name).execute()
+                        except Exception as e:
+                            st.error(f"Database Error: {e}")
+                            res_stock_update = None
 
                         if res_stock_update and res_stock_update.data:
                             if update_inventory_base_rate:

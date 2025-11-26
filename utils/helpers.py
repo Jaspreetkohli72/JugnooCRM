@@ -8,6 +8,8 @@ from datetime import datetime
 # ---------------------------
 CONVERSIONS = {'pcs': 1.0, 'each': 1.0, 'm': 1.0, 'cm': 0.01, 'ft': 0.3048, 'in': 0.0254}
 P_L_STATUS = ["Work Done", "Closed"]
+ACTIVE_STATUSES = ["Estimate Given", "Order Received", "Work In Progress"]
+INACTIVE_STATUSES = ["Work Done", "Closed"]
 
 # --- PROFESSIONAL PDF GENERATOR ---
 class PDFGenerator:
@@ -179,3 +181,13 @@ def calculate_profit_row(row):
     factor = CONVERSIONS.get(unit, 1.0)
     total_cost = base_rate * qty * factor
     return total_sell - total_cost
+
+def create_item_dataframe(items):
+    """Creates and validates a DataFrame for items."""
+    df = pd.DataFrame(items)
+    for col in ["Qty", "Item", "Unit", "Base Rate", "Total Price", "Unit Price"]:
+        if col not in df.columns:
+            df[col] = "" if col in ["Item", "Unit"] else 0.0
+    column_order = ['Qty', 'Item', 'Unit', 'Base Rate', 'Unit Price', 'Total Price']
+    df = df.reindex(columns=column_order, fill_value="")
+    return df
