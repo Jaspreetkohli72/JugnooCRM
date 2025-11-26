@@ -651,14 +651,13 @@ with tab5:
     if supplier_resp and supplier_resp.data:
         df_suppliers = pd.DataFrame(supplier_resp.data)
         
-        edited_suppliers = st.data_editor(df_suppliers, num_rows="dynamic", use_container_width=True, key="sup_editor",
-                                            column_config={
-                                                "id": st.column_config.Column("ID", disabled=True, width="small"), # Hide but keep value
-                                                "name": st.column_config.TextColumn("Supplier Name", required=True),
-                                                "contact_person": st.column_config.TextColumn("Contact Person"),
-                                                "phone": st.column_config.TextColumn("Phone")
-                                            })
-        
+                    edited_suppliers = st.data_editor(df_suppliers, num_rows="dynamic", use_container_width=True, key="sup_editor",
+                                                        column_config={
+                                                            "id": None,  # Hides the ID column to save space
+                                                            "name": st.column_config.TextColumn("Supplier Name", width="large", required=True),
+                                                            "contact_person": st.column_config.TextColumn("Contact Person", width="medium"),
+                                                            "phone": st.column_config.TextColumn("Phone", width="medium")
+                                                        })        
         if st.button("💾 Save Changes", key="save_sup_changes"):
             df_to_save = edited_suppliers.copy()
             # Ensure 'id' is preserved for upsert, handle newly added rows with no ID
