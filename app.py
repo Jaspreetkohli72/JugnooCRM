@@ -491,8 +491,17 @@ with tab4:
     s = get_settings()
     with st.form("glob_set"):
         c1, c2, c3 = st.columns(3)
-        p, l, e = c1.slider("Part %", 0, 100, int(s.get('part_margin', 15.0))), c2.slider("Labor %", 0, 100, int(s.get('labor_margin', 20.0))), c3.slider("Extra %", 0, 100, int(s.get('extra_margin', 5.0)))
+        p = c1.slider("Part %", 0, 100, int(s.get('part_margin', 15.0)))
+        l = c2.slider("Labor %", 0, 100, int(s.get('labor_margin', 20.0)))
+        e = c3.slider("Extra %", 0, 100, int(s.get('extra_margin', 5.0)))
+        
         lc = st.number_input("Daily Labor (₹)", value=float(s.get('daily_labor_cost', 1000.0)), step=100.0)
+
+        total_markup = p + l + e
+        gross_margin = (total_markup / (100 + total_markup)) * 100 if (100 + total_markup) != 0 else 0
+        
+        st.info(f"Total Markup Applied: {total_markup}%  |  Actual Gross Margin: {gross_margin:.1f}%")
+
         if st.form_submit_button("Update Settings"):
             run_query(supabase.table("settings").upsert({"id": 1, "part_margin": p, "labor_margin": l, "extra_margin": e, "daily_labor_cost": lc}))
             st.success("Saved!"); st.cache_resource.clear(); time.sleep(1); st.rerun()
