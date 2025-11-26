@@ -10,101 +10,107 @@ CONVERSIONS = {'pcs': 1.0, 'each': 1.0, 'm': 1.0, 'cm': 0.01, 'ft': 0.3048, 'in'
 P_L_STATUS = ["Work Done", "Closed"]
 
 # --- PROFESSIONAL PDF GENERATOR ---
-def create_pdf(client_name, items, labor_days, labor_total, grand_total, advance_amount):
-    pdf = FPDF()
-    pdf.add_page()
-    
-    pdf.set_font("Arial", 'B', 20)
-    pdf.cell(0, 10, "Jugnoo", ln=True, align='L')
-    pdf.set_font("Arial", 'I', 10)
-    pdf.cell(0, 6, "Smart Automation Solutions", ln=True, align='L')
-    pdf.line(10, 28, 200, 28)
-    pdf.ln(15)
-    
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 8, f"Estimate For: {client_name}", ln=True)
-    pdf.set_font("Arial", '', 10)
-    pdf.cell(0, 8, f"Date: {datetime.now().strftime('%d-%b-%Y')}", ln=True)
-    pdf.ln(5)
-    
-    pdf.set_fill_color(240, 240, 240)
-    pdf.set_font("Arial", 'B', 10)
-    pdf.cell(100, 10, "Description", 1, 0, 'L', 1)
-    pdf.cell(15, 10, "Qty", 1, 0, 'C', 1)
-    pdf.cell(15, 10, "Unit", 1, 0, 'C', 1)
-    pdf.cell(60, 10, "Amount (INR)", 1, 1, 'R', 1)
-    
-    pdf.set_font("Arial", '', 10)
-    for item in items:
-        pdf.cell(100, 8, str(item.get('Item', '')), 1)
-        pdf.cell(15, 8, str(item.get('Qty', 0)), 1, 0, 'C')
-        pdf.cell(15, 8, str(item.get('Unit', '')), 1, 0, 'C')
-        pdf.cell(60, 8, f"{item.get('Total Price', 0):,.2f}", 1, 1, 'R')
+class PDFGenerator:
+    def __init__(self):
+        self.pdf = FPDF()
+
+    def _add_header(self, title):
+        self.pdf.add_page()
+        self.pdf.set_font("Arial", 'B', 20)
+        self.pdf.cell(0, 10, "Jugnoo", ln=True, align='L')
+        self.pdf.set_font("Arial", 'I', 10)
+        self.pdf.cell(0, 6, "Smart Automation Solutions", ln=True, align='L')
+        self.pdf.line(10, 28, 200, 28)
+        self.pdf.ln(15)
+        self.pdf.set_font("Arial", 'B', 12)
+        self.pdf.cell(0, 8, title, ln=True)
+        self.pdf.set_font("Arial", '', 10)
+        self.pdf.cell(0, 8, f"Date: {datetime.now().strftime('%d-%b-%Y')}", ln=True)
+        self.pdf.ln(5)
+
+    def generate_client_invoice(self, client_name, items, labor_days, labor_total, grand_total, advance_amount):
+        self._add_header(f"Estimate For: {client_name}")
         
-    pdf.set_font("Arial", '', 10)
-    pdf.cell(130, 8, f"Labor / Installation ({labor_days} Days)", 1, 0, 'R')
-    pdf.cell(60, 8, f"{labor_total:,.2f}", 1, 1, 'R')
-    
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(130, 10, "Grand Total", 1, 0, 'R')
-    pdf.cell(60, 10, f"Rs. {grand_total:,.2f}", 1, 1, 'R')
-    
-    pdf.ln(10)
-    pdf.set_font("Arial", 'B', 10)
-    pdf.multi_cell(0, 5, f"Advance Payment Required: Rs. {advance_amount:,.2f}")
-    pdf.ln(5)
-    pdf.set_font("Arial", 'I', 8)
-    pdf.set_text_color(100, 100, 100)
-    pdf.multi_cell(0, 5, "NOTE: This is an estimate only. Final rates may vary based on actual site conditions and market fluctuations. Valid for 7 days.")
-    
-    return pdf.output(dest='S').encode('latin-1')
-
-def create_internal_pdf(client_name, items, labor_days, labor_cost, labor_charged, grand_total, total_profit):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(0, 10, "INTERNAL PROFIT REPORT (CONFIDENTIAL)", ln=True, align='C')
-    pdf.set_font("Arial", '', 10)
-    pdf.cell(0, 10, f"Client: {client_name} | Date: {datetime.now().strftime('%Y-%m-%d')}", ln=True)
-    pdf.ln(5)
-
-    pdf.set_fill_color(220, 220, 220)
-    pdf.set_font("Arial", 'B', 9)
-    pdf.cell(70, 8, "Item Description", 1, 0, 'L', 1)
-    pdf.cell(15, 8, "Qty", 1, 0, 'C', 1)
-    pdf.cell(35, 8, "Base Rate", 1, 0, 'R', 1)
-    pdf.cell(35, 8, "Sold At", 1, 0, 'R', 1)
-    pdf.cell(35, 8, "Profit", 1, 1, 'R', 1)
-
-    pdf.set_font("Arial", '', 9)
-    for item in items:
-        qty = float(item.get('Qty', 0))
-        base = float(item.get('Base Rate', 0))
-        total_sell = float(item.get('Total Price', 0))
-        unit_sell = total_sell / qty if qty > 0 else 0
-        row_profit = total_sell - (base * qty)
+        self.pdf.set_fill_color(240, 240, 240)
+        self.pdf.set_font("Arial", 'B', 10)
+        self.pdf.cell(100, 10, "Description", 1, 0, 'L', 1)
+        self.pdf.cell(15, 10, "Qty", 1, 0, 'C', 1)
+        self.pdf.cell(15, 10, "Unit", 1, 0, 'C', 1)
+        self.pdf.cell(60, 10, "Amount (INR)", 1, 1, 'R', 1)
         
-        pdf.cell(70, 8, str(item.get('Item', ''))[:35], 1)
-        pdf.cell(15, 8, str(qty), 1, 0, 'C')
-        pdf.cell(35, 8, f"{base:,.2f}", 1, 0, 'R')
-        pdf.cell(35, 8, f"{unit_sell:,.2f}", 1, 0, 'R')
-        pdf.set_text_color(0, 150, 0); pdf.cell(35, 8, f"{row_profit:,.2f}", 1, 1, 'R'); pdf.set_text_color(0, 0, 0)
+        self.pdf.set_font("Arial", '', 10)
+        for item in items:
+            self.pdf.cell(100, 8, str(item.get('Item', '')), 1)
+            self.pdf.cell(15, 8, str(item.get('Qty', 0)), 1, 0, 'C')
+            self.pdf.cell(15, 8, str(item.get('Unit', '')), 1, 0, 'C')
+            self.pdf.cell(60, 8, f"{item.get('Total Price', 0):,.2f}", 1, 1, 'R')
+            
+        self.pdf.set_font("Arial", '', 10)
+        self.pdf.cell(130, 8, f"Labor / Installation ({labor_days} Days)", 1, 0, 'R')
+        self.pdf.cell(60, 8, f"{labor_total:,.2f}", 1, 1, 'R')
+        
+        self.pdf.set_font("Arial", 'B', 12)
+        self.pdf.cell(130, 10, "Grand Total", 1, 0, 'R')
+        self.pdf.cell(60, 10, f"Rs. {grand_total:,.2f}", 1, 1, 'R')
+        
+        self.pdf.ln(10)
+        self.pdf.set_font("Arial", 'B', 10)
+        self.pdf.multi_cell(0, 5, f"Advance Payment Required: Rs. {advance_amount:,.2f}")
+        self.pdf.ln(5)
+        self.pdf.set_font("Arial", 'I', 8)
+        self.pdf.set_text_color(100, 100, 100)
+        self.pdf.multi_cell(0, 5, "NOTE: This is an estimate only. Final rates may vary based on actual site conditions and market fluctuations. Valid for 7 days.")
+        
+        return self.pdf.output(dest='S').encode('latin-1')
 
-    labor_profit = labor_charged - labor_cost
-    pdf.ln(5)
-    pdf.set_font("Arial", 'B', 10)
-    pdf.cell(120, 8, f"Labor ({labor_days} Days)", 1, 0, 'R')
-    pdf.cell(35, 8, f"Cost: {labor_cost:,.2f}", 1, 0, 'R')
-    pdf.cell(35, 8, f"Chrg: {labor_charged:,.2f}", 1, 1, 'R')
+    def generate_internal_report(self, client_name, items, labor_days, labor_cost, labor_charged, grand_total, total_profit):
+        self._add_header(f"INTERNAL PROFIT REPORT (CONFIDENTIAL) - {client_name}")
+        
+        self.pdf.set_fill_color(220, 220, 220)
+        self.pdf.set_font("Arial", 'B', 9)
+        self.pdf.cell(70, 8, "Item Description", 1, 0, 'L', 1)
+        self.pdf.cell(15, 8, "Qty", 1, 0, 'C', 1)
+        self.pdf.cell(35, 8, "Base Rate", 1, 0, 'R', 1)
+        self.pdf.cell(35, 8, "Sold At", 1, 0, 'R', 1)
+        self.pdf.cell(35, 8, "Profit", 1, 1, 'R', 1)
 
-    pdf.ln(10)
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(120, 10, "TOTAL REVENUE:", 1, 0, 'R')
-    pdf.cell(70, 10, f"Rs. {grand_total:,.2f}", 1, 1, 'R')
-    pdf.cell(120, 10, "NET PROFIT:", 1, 0, 'R')
-    pdf.set_text_color(0, 150, 0); pdf.cell(70, 10, f"Rs. {total_profit:,.2f}", 1, 1, 'R')
+        self.pdf.set_font("Arial", '', 9)
+        for item in items:
+            qty = float(item.get('Qty', 0))
+            base = float(item.get('Base Rate', 0))
+            total_sell = float(item.get('Total Price', 0))
+            unit_sell = total_sell / qty if qty > 0 else 0
+            row_profit = total_sell - (base * qty)
+            
+            self.pdf.cell(70, 8, str(item.get('Item', ''))[:35], 1)
+            self.pdf.cell(15, 8, str(qty), 1, 0, 'C')
+            self.pdf.cell(35, 8, f"{base:,.2f}", 1, 0, 'R')
+            self.pdf.cell(35, 8, f"{unit_sell:,.2f}", 1, 0, 'R')
+            self.pdf.set_text_color(0, 150, 0); self.pdf.cell(35, 8, f"{row_profit:,.2f}", 1, 1, 'R'); self.pdf.set_text_color(0, 0, 0)
 
-    return pdf.output(dest='S').encode('latin-1')
+        labor_profit = labor_charged - labor_cost
+        self.pdf.ln(5)
+        self.pdf.set_font("Arial", 'B', 10)
+        self.pdf.cell(120, 8, f"Labor ({labor_days} Days)", 1, 0, 'R')
+        self.pdf.cell(35, 8, f"Cost: {labor_cost:,.2f}", 1, 0, 'R')
+        self.pdf.cell(35, 8, f"Chrg: {labor_charged:,.2f}", 1, 1, 'R')
+
+        self.pdf.ln(10)
+        self.pdf.set_font("Arial", 'B', 12)
+        self.pdf.cell(120, 10, "TOTAL REVENUE:", 1, 0, 'R')
+        self.pdf.cell(70, 10, f"Rs. {grand_total:,.2f}", 1, 1, 'R')
+        self.pdf.cell(120, 10, "NET PROFIT:", 1, 0, 'R')
+        self.pdf.set_text_color(0, 150, 0); self.pdf.cell(70, 10, f"Rs. {total_profit:,.2f}", 1, 1, 'R')
+
+        return self.pdf.output(dest='S').encode('latin-1')
+
+def create_pdf(*args, **kwargs):
+    pdf_gen = PDFGenerator()
+    return pdf_gen.generate_client_invoice(*args, **kwargs)
+
+def create_internal_pdf(*args, **kwargs):
+    pdf_gen = PDFGenerator()
+    return pdf_gen.generate_internal_report(*args, **kwargs)
 
 
 def calculate_estimate_details(edf_items_list, days, margins, global_settings):

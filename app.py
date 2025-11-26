@@ -1,6 +1,6 @@
 import streamlit as st
 from supabase import create_client
-from utils import helpers
+from utils import helpers, auth
 
 from datetime import datetime, timedelta
 import time
@@ -65,9 +65,7 @@ def check_login(username, password):
         res = run_query(supabase.table("users").select("password").eq("username", username))
         if res and res.data:
             hashed_password = res.data[0]['password']
-            # This is not hashing yet, just a plain text comparison.
-            # Hashing will be implemented in a later step.
-            return password == hashed_password
+            return auth.verify_password(password, hashed_password)
         return False
     except:
         return False
@@ -105,21 +103,17 @@ login_section()
 # ---------------------------
 # 3. HELPER FUNCTIONS
 # ---------------------------
-def run_query(query_func):
-    try:
-        return query_func.execute()
-    except Exception as e:
-        st.error(f"Database Error: {e}")
-        return None
+
 
 def get_settings():
     defaults = {"part_margin": 15.0, "labor_margin": 20.0, "extra_margin": 5.0, "daily_labor_cost": 1000.0}
     try:
-        response = run_query(supabase.table("settings").select("*").eq("id", 1))
+        response = supabase.table("settings").select("*").eq("id", 1).execute()
         if response and response.data:
             db_data = response.data[0]
             return {k: db_data.get(k, v) for k, v in defaults.items()}
-    except:
+    except Exception as e:
+        st.error(f"Database Error: {e}")
         pass
     return defaults
 
@@ -155,7 +149,11 @@ with tab1:
         key="status_filter_radio"
     )
 
-    response = run_query(supabase.table("clients").select("*").order("created_at", desc=True))
+    try:
+        response = supabase.table("clients").select("*").order("created_at", desc=True).execute()
+    except Exception as e:
+        st.error(f"Database Error: {e}")
+        response = None
     
     if response and response.data:
         df = pd.DataFrame(response.data)
@@ -201,7 +199,11 @@ with tab1:
                         st.link_button("🚀 Open Location in Maps", url=client['location'], use_container_width=True)
 
                     if st.form_submit_button("💾 Save Changes"):
-                        res = run_query(supabase.table("clients").update({"name": nn, "phone": np, "address": na, "location": ml}).eq("id", client['id'])) # Changed from maps_link to location
+                        try:
+                            res = supabase.table("clients").update({"name": nn, "phone": np, "address": na, "location": ml}).eq("id", client['id']).execute()
+                        except Exception as e:
+                            st.error(f"Database Error: {e}")
+                            res = None
             with c2:
                 st.write("**Project Status**")
                 opts = ["Estimate Given", "Order Received", "Work In Progress", "Work Done", "Closed"]
@@ -216,10 +218,15 @@ with tab1:
                 if st.button("Update Status", key=f"btn_{client['id']}"):
                     upd = {"status": n_stat}
                     if s_date: upd["start_date"] = s_date.isoformat()
-                    res = run_query(supabase.table("clients").update(upd).eq("id", client['id']))
-                    if res and res.data: st.success("Status Saved!"); time.sleep(0.5); st.rerun()
+                    try:
+                        res = supabase.table("clients").update(upd).eq("id", client['id']).execute()
+                        if res and res.data: st.success("Status Saved!"); time.sleep(0.5); st.rerun()
+                    except Exception as e:
+                        st.error(f"Database Error: {e}")
 
-            st.expander("Danger Zone").button("Delete Client", type="secondary", use_container_width=True, on_click=lambda: run_query(supabase.table("clients").delete().eq("id", client['id'])), key=f"del_{client['id']}")
+            st.expander("Danger Zone").button("Delete Client", type="secondary", use_container_width=True, on_click=lambda: (
+                supabase.table("clients").delete().eq("id", client['id']).execute()
+            ), key=f"del_{client['id']}")
             if st.session_state.get(f"del_{client['id']}"): # Check if button was clicked
                 st.success("Client Deleted!"); time.sleep(1); st.rerun()
 
@@ -290,8 +297,11 @@ with tab1:
                             df_to_save[col] = pd.to_numeric(df_to_save[col].fillna(0))
                         for col in ['Item', 'Unit']: df_to_save[col] = df_to_save[col].fillna("")
                         new_json = {"items": df_to_save.to_dict(orient="records"), "days": s_days, "margins": est_data.get('margins')} # Save original margins structure
-                        run_query(supabase.table("clients").update({"internal_estimate": new_json}).eq("id", client['id']))
-                        st.toast("Saved!", icon="✅")
+                        try:
+                            run_query(supabase.table("clients").update({"internal_estimate": new_json}).eq("id", client['id']))
+                            st.toast("Saved!", icon="✅")
+                        except Exception as e:
+                            st.error(f"Database Error: {e}")
                     
                     st.write("#### 📥 Download Bills")
                     c_pdf1, c_pdf2 = st.columns(2)
@@ -345,14 +355,21 @@ with tab2:
         ml_new_client = st.text_input("Google Maps Link", key=maps_link_new_client_key)
         
         if st.form_submit_button("Create Client", type="primary"):
-            res = run_query(supabase.table("clients").insert({"name": nm, "phone": ph, "address": ad, "location": ml_new_client, "status": "Estimate Given", "created_at": datetime.now().isoformat()})) # Changed from maps_link to location
-            if res and res.data: st.success(f"Client {nm} Added!"); time.sleep(1); st.rerun()
-            else: st.error("Save Failed.")
+            try:
+                res = supabase.table("clients").insert({"name": nm, "phone": ph, "address": ad, "location": ml_new_client, "status": "Estimate Given", "created_at": datetime.now().isoformat()}).execute()
+                if res and res.data: st.success(f"Client {nm} Added!"); time.sleep(1); st.rerun()
+                else: st.error("Save Failed.")
+            except Exception as e:
+                st.error(f"Database Error: {e}")
 
 # --- TAB 3: ESTIMATOR ---
 with tab3:
     st.subheader("Estimator Engine")
-    ac = run_query(supabase.table("clients").select("id, name, internal_estimate").neq("status", "Closed"))
+    try:
+        ac = supabase.table("clients").select("id, name, internal_estimate").neq("status", "Closed").execute()
+    except Exception as e:
+        st.error(f"Database Error: {e}")
+        ac = None
     cd = {c['name']: c for c in ac.data} if ac and ac.data else {}
     tn = st.selectbox("Select Client", list(cd.keys()), key="est_sel")
     
@@ -381,12 +398,20 @@ with tab3:
         st.divider()
 
         # Step A: Fetch Stock Data
-        inv_all_items_response = run_query(supabase.table("inventory").select("item_name, stock_quantity"))
+        try:
+            inv_all_items_response = supabase.table("inventory").select("item_name, stock_quantity").execute()
+        except Exception as e:
+            st.error(f"Database Error: {e}")
+            inv_all_items_response = None
         stock_map = {}
         if inv_all_items_response and inv_all_items_response.data:
             stock_map = {item['item_name']: item.get('stock_quantity', 0.0) for item in inv_all_items_response.data}
             
-        inv = run_query(supabase.table("inventory").select("*"))
+        try:
+            inv = supabase.table("inventory").select("*").execute()
+        except Exception as e:
+            st.error(f"Database Error: {e}")
+            inv = None
         if inv and inv.data:
             imap = {i['item_name']: i for i in inv.data}
             with st.form("add_est"):
@@ -485,8 +510,11 @@ with tab3:
                 for col in ['Item', 'Unit']: df_to_save[col] = df_to_save[col].fillna("")
                 cit = df_to_save.to_dict(orient="records")
                 sobj = {"items": cit, "days": dys, "margins": {'p': am['part_margin'], 'l': am['labor_margin'], 'e': am['extra_margin']} if uc else None}
-                res = run_query(supabase.table("clients").update({"internal_estimate": sobj}).eq("id", tc['id']))
-                if res and res.data: st.toast("Saved!", icon="✅")
+                try:
+                    res = supabase.table("clients").update({"internal_estimate": sobj}).eq("id", tc['id']).execute()
+                    if res and res.data: st.toast("Saved!", icon="✅")
+                except Exception as e:
+                    st.error(f"Database Error: {e}")
             
             pbytes = create_pdf(tc['name'], edf.to_dict(orient="records"), dys, disp_lt, rounded_gt, advance_amount)
             cp.download_button("📄 Download PDF", pbytes, f"Est_{tc['name']}.pdf", "application/pdf", key=f"pe_{tc['id']}")
@@ -509,8 +537,11 @@ with tab4:
         st.info(f"Total Markup Applied: {total_markup}%  |  Actual Gross Margin: {gross_margin:.1f}%")
 
         if st.form_submit_button("Update Settings"):
-            run_query(supabase.table("settings").upsert({"id": 1, "part_margin": p, "labor_margin": l, "extra_margin": e, "daily_labor_cost": lc}))
-            st.success("Saved!"); st.cache_resource.clear(); time.sleep(1); st.rerun()
+            try:
+                supabase.table("settings").upsert({"id": 1, "part_margin": p, "labor_margin": l, "extra_margin": e, "daily_labor_cost": lc}).execute()
+                st.success("Saved!"); st.cache_resource.clear(); time.sleep(1); st.rerun()
+            except Exception as e:
+                st.error(f"Database Error: {e}")
             
     st.divider()
     st.subheader("Inventory (Editable)")
@@ -519,10 +550,17 @@ with tab4:
         new_item, rate = c1.text_input("Item Name"), c2.number_input("Rate", min_value=0.0)
         unit = c3.selectbox("Unit", ['pcs', 'm', 'ft', 'cm', 'in'])
         if st.form_submit_button("Add Item"):
-            if run_query(supabase.table("inventory").insert({"item_name": new_item, "base_rate": rate, "unit": unit})):
+            try:
+                supabase.table("inventory").insert({"item_name": new_item, "base_rate": rate, "unit": unit}).execute()
                 st.success("Added"); st.rerun()
+            except Exception as e:
+                st.error(f"Database Error: {e}")
     
-    inv_resp = run_query(supabase.table("inventory").select("*").order("item_name"))
+    try:
+        inv_resp = supabase.table("inventory").select("*").order("item_name").execute()
+    except Exception as e:
+        st.error(f"Database Error: {e}")
+        inv_resp = None
     if inv_resp and inv_resp.data:
         inv_df = pd.DataFrame(inv_resp.data)
         if 'unit' not in inv_df.columns: inv_df['unit'] = "pcs"
@@ -551,9 +589,17 @@ with tab4:
             errors = 0
             for row in recs:
                 if row.get('item_name'):
-                   if not run_query(supabase.table("inventory").upsert(row)): errors += 1
-            if errors == 0: st.success("Inventory Updated!"); time.sleep(0.5); st.rerun()
-            else: st.warning("Some items failed to save.")
+                    try:
+                        supabase.table("inventory").upsert(row).execute()
+                    except Exception as e:
+                        errors += 1
+                        st.error(f"Error saving {row.get('item_name')}: {e}")
+            if errors == 0: 
+                st.success("Inventory Updated!")
+                time.sleep(0.5)
+                st.rerun()
+            else: 
+                st.warning(f"{errors} items failed to save.")
     
     st.divider()
     with st.form("pwd_chg"):
@@ -565,9 +611,10 @@ with tab4:
             res = run_query(supabase.table("users").select("password").eq("username", st.session_state.username))
             if res and res.data:
                 current_password = res.data[0]['password']
-                if op == current_password:
+                if auth.verify_password(op, current_password):
                     # If old password is correct, update to new password
-                    run_query(supabase.table("users").update({"password": np}).eq("username", st.session_state.username))
+                    new_hashed_password = auth.hash_password(np)
+                    run_query(supabase.table("users").update({"password": new_hashed_password}).eq("username", st.session_state.username))
                     st.success("Password updated successfully!")
                 else:
                     st.error("Incorrect old password.")
@@ -583,8 +630,16 @@ with tab5:
     # --- Top Section: Left Column (Record Purchase) ---
     with col_purchase:
         st.subheader("Record Purchase")
-        supplier_resp_p = run_query(supabase.table("suppliers").select("id, name").order("name"))
-        inventory_resp_p = run_query(supabase.table("inventory").select("item_name, base_rate").order("item_name"))
+        try:
+            supplier_resp_p = supabase.table("suppliers").select("id, name").order("name").execute()
+        except Exception as e:
+            st.error(f"Database Error: {e}")
+            supplier_resp_p = None
+        try:
+            inventory_resp_p = supabase.table("inventory").select("item_name, base_rate").order("item_name").execute()
+        except Exception as e:
+            st.error(f"Database Error: {e}")
+            inventory_resp_p = None
 
         supplier_options = {s['name']: s['id'] for s in supplier_resp_p.data} if supplier_resp_p and supplier_resp_p.data else {}
         inventory_options = {i['item_name']: i for i in inventory_resp_p.data} if inventory_resp_p and inventory_resp_p.data else {}
@@ -608,13 +663,17 @@ with tab5:
                     supplier_id = supplier_options[selected_supplier_name]
                     total_cost = purchase_rate * purchase_qty
 
-                    res_purchase = run_query(supabase.table("purchase_log").insert({
-                        "supplier_id": supplier_id,
-                        "item_name": selected_item_name,
-                        "qty": purchase_qty,
-                        "rate": purchase_rate,
-                        "total_cost": total_cost
-                    }))
+                    try:
+                        res_purchase = supabase.table("purchase_log").insert({
+                            "supplier_id": supplier_id,
+                            "item_name": selected_item_name,
+                            "qty": purchase_qty,
+                            "rate": purchase_rate,
+                            "total_cost": total_cost
+                        }).execute()
+                    except Exception as e:
+                        st.error(f"Database Error: {e}")
+                        res_purchase = None
 
                     if res_purchase and res_purchase.data:
                         # Perform atomic stock increment
@@ -622,12 +681,15 @@ with tab5:
 
                         if res_stock_update and res_stock_update.data:
                             if update_inventory_base_rate:
-                                res_inventory = run_query(supabase.table("inventory").update({"base_rate": purchase_rate}).eq("item_name", selected_item_name))
-                                if res_inventory and res_inventory.data:
-                                    st.success("Purchase Recorded, Stock & Inventory Updated!")
-                                    time.sleep(0.5); st.rerun()
-                                else:
-                                    st.error("Purchase Recorded, but failed to update Inventory Base Rate.")
+                                try:
+                                    res_inventory = supabase.table("inventory").update({"base_rate": purchase_rate}).eq("item_name", selected_item_name).execute()
+                                    if res_inventory and res_inventory.data:
+                                        st.success("Purchase Recorded, Stock & Inventory Updated!")
+                                        time.sleep(0.5); st.rerun()
+                                    else:
+                                        st.error("Purchase Recorded, Stock Updated, but failed to update Inventory Base Rate.")
+                                except Exception as e:
+                                    st.error(f"Database Error: {e}")
                             else:
                                 st.success("Purchase Recorded & Stock Updated!")
                                 time.sleep(0.5); st.rerun()
@@ -648,19 +710,26 @@ with tab5:
             s_gstin = st.text_input("GSTIN")
             if st.form_submit_button("Add New Supplier", type="primary"):
                 if s_name:
-                    res = run_query(supabase.table("suppliers").insert({"name": s_name, "contact_person": s_contact, "phone": s_phone, "gstin": s_gstin}))
-                    if res and res.data:
-                        st.success(f"Supplier {s_name} added!")
-                        time.sleep(0.5); st.rerun()
-                    else:
-                        st.error("Failed to add supplier.")
+                    try:
+                        res = supabase.table("suppliers").insert({"name": s_name, "contact_person": s_contact, "phone": s_phone, "gstin": s_gstin}).execute()
+                        if res and res.data:
+                            st.success(f"Supplier {s_name} added!")
+                            time.sleep(0.5); st.rerun()
+                        else:
+                            st.error("Failed to add supplier.")
+                    except Exception as e:
+                        st.error(f"Database Error: {e}")
                 else:
                     st.warning("Supplier Name cannot be empty.")
     
     # --- Middle Section (Full Width): Existing Suppliers ---
     st.divider()
     st.subheader("Existing Suppliers")
-    supplier_resp = run_query(supabase.table("suppliers").select("*").order("name"))
+    try:
+        supplier_resp = supabase.table("suppliers").select("*").order("name").execute()
+    except Exception as e:
+        st.error(f"Database Error: {e}")
+        supplier_resp = None
     if supplier_resp and supplier_resp.data:
         df_suppliers = pd.DataFrame(supplier_resp.data)
         edited_suppliers = st.data_editor(df_suppliers, num_rows="dynamic", use_container_width=True, key="sup_editor",
@@ -678,10 +747,14 @@ with tab5:
             errors_occurred = False
             for record in recs_to_upsert:
                 if record.get("name"):
-                    res = run_query(supabase.table("suppliers").upsert(record))
-                    if not (res and res.data):
+                    try:
+                        res = supabase.table("suppliers").upsert(record).execute()
+                        if not (res and res.data):
+                            errors_occurred = True
+                            st.error(f"Failed to save supplier: {record.get('name')}")
+                    except Exception as e:
                         errors_occurred = True
-                        st.error(f"Failed to save supplier: {record.get('name')}")
+                        st.error(f"Failed to save supplier: {record.get('name')}: {e}")
                 else:
                     st.warning("Skipped saving a row with an empty supplier name.")
 
@@ -694,7 +767,11 @@ with tab5:
     # --- Bottom Section (Full Width): Recent History ---
     st.divider()
     st.subheader("Recent Purchase History")
-    purchase_log_resp = run_query(supabase.table("purchase_log").select("*, suppliers(name)").order("created_at", desc=True).limit(50))
+    try:
+        purchase_log_resp = supabase.table("purchase_log").select("*, suppliers(name)").order("created_at", desc=True).limit(50).execute()
+    except Exception as e:
+        st.error(f"Database Error: {e}")
+        purchase_log_resp = None
 
     if purchase_log_resp and purchase_log_resp.data:
         df_purchases = pd.DataFrame(purchase_log_resp.data)
@@ -721,8 +798,16 @@ with tab6:
 
     try:
         # Fetch Data
-        clients_response = run_query(supabase.table("clients").select("status, internal_estimate"))
-        purchase_log_response = run_query(supabase.table("purchase_log").select("total_cost"))
+        try:
+            clients_response = supabase.table("clients").select("status, internal_estimate").execute()
+        except Exception as e:
+            st.error(f"Database Error: {e}")
+            clients_response = None
+        try:
+            purchase_log_response = supabase.table("purchase_log").select("total_cost").execute()
+        except Exception as e:
+            st.error(f"Database Error: {e}")
+            purchase_log_response = None
         settings = get_settings() # Re-use existing helper function
 
         if clients_response and clients_response.data and purchase_log_response and purchase_log_response.data and settings:
