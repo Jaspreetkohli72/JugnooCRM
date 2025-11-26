@@ -872,7 +872,6 @@ with tab6:
                     'Category': ['Revenue', 'Material Expense', 'Labor Expense'],
                     'Amount': [total_revenue, total_material_expense, total_labor_expense]
                 })
-                # Ensure correct color mapping for a consistent visual identity
                 bar_chart = alt.Chart(chart_data_bar).mark_bar().encode(
                     x=alt.X('Category:N', axis=alt.Axis(title=None, labels=True)),
                     y=alt.Y('Amount:Q', axis=alt.Axis(title="Amount (₹)", labels=True)),
@@ -891,19 +890,17 @@ with tab6:
                     'Cost Type': ['Material Cost', 'Labor Cost'],
                     'Amount': [total_material_expense, total_labor_expense]
                 })
-                # Add a conditional check for zero total cost to prevent division by zero in arcs
                 total_cost_for_pie = total_material_expense + total_labor_expense
                 if total_cost_for_pie > 0:
                     pie_chart = alt.Chart(chart_data_pie).mark_arc(outerRadius=120).encode(
                         theta=alt.Theta("Amount", stack=True),
                         color=alt.Color("Cost Type:N", scale=alt.Scale(domain=['Material Cost', 'Labor Cost'], range=['#F44336', '#FFC107']), legend=alt.Legend(title="Cost Type")),
                         order=alt.Order("Amount", sort="descending"),
-                        tooltip=["Cost Type", alt.Tooltip("Amount", format="₹,.0f"), alt.Tooltip("Amount", format=".1%", title="Percentage", stack=True)]
+                        tooltip=['Cost Type', alt.Tooltip('Amount', format="₹,.0f")] # CRITICAL FIX: Removed stack=True from tooltip
                     ).properties(
                         title='Material vs Labor Cost Split'
                     )
-
-                    st.altair_chart(pie_chart, use_container_width=True) # Removed text layer for better readability.
+                    st.altair_chart(pie_chart, use_container_width=True)
                 else:
                     st.info("No material or labor costs to display in the cost split chart.")
 
