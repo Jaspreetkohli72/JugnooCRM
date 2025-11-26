@@ -258,7 +258,7 @@ with tab1:
                                                             "Unit": st.column_config.SelectboxColumn("Unit", options=["pcs", "m", "cm", "in", "ft"], width="small", required=True),
                                                             "Base Rate": st.column_config.NumberColumn("Base Rate", width="small"),
                                                             "Unit Price": st.column_config.NumberColumn("Unit Price", format="₹%.2f", width="small", disabled=True),
-                                                            "Total Price": st.column_config.NumberColumn("Total Price", width="small", disabled=True)
+                                                            "Total Price": st.column_config.NumberColumn("Total Price", format="₹%.2f", width="small", disabled=True)
                                                         })
     
                             # --- Refactored Calculation Logic ---
@@ -449,7 +449,7 @@ with tab3:
                     "Unit": st.column_config.SelectboxColumn("Unit", options=["pcs", "m", "ft", "cm", "in"], width="small", required=True),
                     "Base Rate": st.column_config.NumberColumn("Base Rate", width="small"),
                     "Unit Price": st.column_config.NumberColumn("Unit Price", format="₹%.2f", width="small", disabled=True),
-                    "Total Price": st.column_config.NumberColumn("Total Price", width="small", disabled=True)
+                    "Total Price": st.column_config.NumberColumn("Total Price", format="₹%.2f", width="small", disabled=True)
                 })
             
             # --- Universal Calculation Logic ---
@@ -515,7 +515,7 @@ with tab3:
                     df_to_save[col] = pd.to_numeric(df_to_save[col].fillna(0))
                 for col in ['Item', 'Unit']: df_to_save[col] = df_to_save[col].fillna("")
                 cit = df_to_save.to_dict(orient="records")
-                sobj = {"items": cit, "days": dys, "margins": {'p': am['part_margin'], 'l': am['labor_margin'], 'e': am['extra_margin']} if uc else None}
+                sobj = {"items": cit, "days": dys, "margins": am if uc else None}
                 try:
                     res = supabase.table("clients").update({"internal_estimate": sobj}).eq("id", tc['id']).execute()
                     if res and res.data: st.toast("Saved!", icon="✅")
@@ -825,7 +825,7 @@ with tab6:
 
     try:
         if clients_response and clients_response.data and purchase_log_response and purchase_log_response.data and settings:
-            all_clients = clients_response.data
+            all_clients = clients.response.data
             purchase_log_data = purchase_log_response.data
             daily_labor_cost = float(settings.get('daily_labor_cost', 1000.0))
 
@@ -908,8 +908,6 @@ with tab6:
                     tooltip=['Category:N', alt.Tooltip('Amount:Q', format='₹,.0f')]
                 ).properties(
                     title='Total Revenue vs Expenses'
-                ).configure_axis(
-                    labelAngle=0
                 )
                 st.altair_chart(bar_chart, use_container_width=True)
 
