@@ -674,19 +674,19 @@ with tab5:
         # --- Top Section: Left Column (Record Purchase) ---
         with col_purchase:
             st.subheader("Record Purchase")
-                    try:
-                        suppliers_response = supabase.table("suppliers").select("id, name").order("name").execute()
-                    except Exception as e:
-                        st.error(f"Database Error: {e}")
-                        suppliers_response = None
-                    try:
-                        inventory_response = supabase.table("inventory").select("item_name, base_rate").order("item_name").execute()
-                    except Exception as e:
-                        st.error(f"Database Error: {e}")
-                        inventory_response = None
-            
-                    supplier_options = {s['name']: s['id'] for s in suppliers_response.data} if suppliers_response and suppliers_response.data else {}
-                    inventory_options = {i['item_name']: i for i in inventory_response.data} if inventory_response and inventory_response.data else {}
+            try:
+                suppliers_response = supabase.table("suppliers").select("id, name").order("name").execute()
+            except Exception as e:
+                st.error(f"Database Error: {e}")
+                suppliers_response = None
+            try:
+                inventory_response = supabase.table("inventory").select("item_name, base_rate").order("item_name").execute()
+            except Exception as e:
+                st.error(f"Database Error: {e}")
+                inventory_response = None
+    
+            supplier_options = {s['name']: s['id'] for s in suppliers_response.data} if suppliers_response and suppliers_response.data else {}
+            inventory_options = {i['item_name']: i for i in inventory_response.data} if inventory_response and inventory_response.data else {}
             if not supplier_options:
                 st.warning("Please add a supplier in the 'Directory' section first.")
             if not inventory_options:
