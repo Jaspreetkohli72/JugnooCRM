@@ -161,7 +161,7 @@ def create_pdf(client_name, items, labor_days, labor_total, grand_total, advance
     # Footer Disclaimer
     pdf.ln(10)
     pdf.set_font("Arial", 'B', 10)
-    pdf.multi_cell(0, 5, f"Advance Required to Start: Rs. {advance_amount:,.2f}")
+    pdf.multi_cell(0, 5, f"Advance Payment Required: Rs. {advance_amount:,.2f}")
     pdf.ln(5)
     pdf.set_font("Arial", 'I', 8)
     pdf.set_text_color(100, 100, 100)
@@ -258,15 +258,13 @@ with tab1:
             
             with c1:
                 st.write("**Edit Details**")
-                # GPS BUTTON (Manual Only)
                 gps_dash = get_geolocation(component_key=f"gps_dash_{client['id']}")
                 last_gps_key = f"last_gps_dash_{client['id']}"
                 loc_input_key = f"loc_in_dash_{client['id']}"
 
                 if gps_dash and gps_dash != st.session_state.get(last_gps_key):
                     st.session_state[last_gps_key] = gps_dash
-                    lat = gps_dash['coords']['latitude']
-                    lng = gps_dash['coords']['longitude']
+                    lat, lng = gps_dash['coords']['latitude'], gps_dash['coords']['longitude']
                     st.info(f"📍 Found: {lat:.4f}, {lng:.4f}")
                     if st.button("⬇️ Paste Location", key=f"pst_{client['id']}"):
                         st.session_state[loc_input_key] = f"http://googleusercontent.com/maps.google.com/?q={lat},{lng}"
@@ -276,7 +274,6 @@ with tab1:
                     nn = st.text_input("Name", value=client['name'])
                     np = st.text_input("Phone", value=client.get('phone', ''))
                     na = st.text_area("Address", value=client.get('address', ''))
-                    
                     if loc_input_key not in st.session_state:
                         st.session_state[loc_input_key] = client.get('location', '')
                     nl = st.text_input("Maps Link", key=loc_input_key)
@@ -286,9 +283,7 @@ with tab1:
                             "name": nn, "phone": np, "address": na, "location": nl
                         }).eq("id", client['id']))
                         if res and res.data:
-                            st.success("Updated!")
-                            time.sleep(0.5)
-                            st.rerun()
+                            st.success("Updated!"); time.sleep(0.5); st.rerun()
                 if client.get('location'):
                     st.link_button("🚀 Navigate to Site", client['location'])
 
@@ -309,98 +304,76 @@ with tab1:
                     if s_date: upd["start_date"] = s_date.isoformat()
                     res = run_query(supabase.table("clients").update(upd).eq("id", client['id']))
                     if res and res.data:
-                        st.success("Status Saved!")
-                        time.sleep(0.5)
-                        st.rerun()
+                        st.success("Status Saved!"); time.sleep(0.5); st.rerun()
                         
                 with st.expander("Danger Zone"):
                     if st.button("Delete Client", key=f"del_{client['id']}"):
                         run_query(supabase.table("clients").delete().eq("id", client['id']))
-                        st.success("Deleted")
-                        time.sleep(1)
-                        st.rerun()
+                        st.success("Deleted"); time.sleep(1); st.rerun()
 
-            # --- BILL GENERATION LOGIC (Work Done) ---
             if client.get('internal_estimate'):
                 st.divider()
-                
                 is_work_done = (client.get('status') == "Work Done")
-                header_text = "📄 Final Bill Generator" if is_work_done else "📄 Manage Estimate"
-                st.subheader(header_text)
+                st.subheader("📄 Final Bill Generator" if is_work_done else "📄 Manage Estimate")
                 
                 est_data = client['internal_estimate']
-                s_items = est_data.get('items', []) if isinstance(est_data, dict) else (est_data if isinstance(est_data, list) else [])
-                s_days = est_data.get('days', 1.0) if isinstance(est_data, dict) else 1.0
+                s_items, s_days = est_data.get('items', []), est_data.get('days', 1.0)
                 
                 if s_items:
                     idf = pd.DataFrame(s_items)
                     for col in ["Total Price", "Base Rate", "Qty", "Unit Price"]:
                         if col not in idf.columns: idf[col] = 0.0
-                    if 'Unit' not in idf.columns: idf['Unit'] = ""
-                    if 'Item' not in idf.columns: idf['Item'] = ""
+                    for col in ["Unit", "Item"]:
+                        if col not in idf.columns: idf[col] = ""
                     
                     idf['Unit Price'] = idf.apply(lambda row: row['Total Price'] / row['Qty'] if row['Qty'] != 0 else 0, axis=1)
                     
                     edited_est = st.data_editor(idf, num_rows="dynamic", use_container_width=True, key=f"de_{client['id']}",
                                                 column_config={"Unit Price": None, "Total Price": st.column_config.NumberColumn(disabled=True)})
                     
-                    edited_est['Qty'] = pd.to_numeric(edited_est['Qty'].fillna(0))
-                    edited_est['Base Rate'] = pd.to_numeric(edited_est['Base Rate'].fillna(0))
-                    edited_est['Unit Price'] = pd.to_numeric(edited_est['Unit Price'].fillna(0))
-                    edited_est['Item'] = edited_est['Item'].fillna("")
-                    edited_est['Unit'] = edited_est['Unit'].fillna("")
-
-                    edited_est['Total Price'] = edited_est['Unit Price'] * edited_est['Qty']
+                    edited_est['Total Price'] = pd.to_numeric(edited_est['Unit Price']) * pd.to_numeric(edited_est['Qty'])
                     
                     gs = get_settings()
                     mat_sell = edited_est['Total Price'].sum()
                     daily_cost = float(gs.get('daily_labor_cost', 1000))
                     labor_actual_cost = float(s_days) * daily_cost
                     
-                    total_base_cost = (edited_est['Base Rate'] * edited_est['Qty']).sum() + labor_actual_cost
+                    total_base_cost = (pd.to_numeric(edited_est['Base Rate']) * pd.to_numeric(edited_est['Qty'])).sum() + labor_actual_cost
                     raw_grand_total = mat_sell + labor_actual_cost
                     rounded_grand_total = math.ceil(raw_grand_total / 100) * 100
                     total_profit = rounded_grand_total - total_base_cost
                     advance_amount = total_base_cost + (total_profit * 0.10)
                     
-                    rounding_profit = rounded_grand_total - raw_grand_total
-                    labor_charged_display = labor_actual_cost + rounding_profit
+                    labor_charged_display = labor_actual_cost + (rounded_grand_total - raw_grand_total)
                     
-                    m1, m2, m3, m4 = st.columns(4)
+                    m1, m2, m3, m4, m5 = st.columns(5)
                     m1.metric("Material Total", f"₹{mat_sell:,.0f}")
-                    m2.metric("Labor + Rounding", f"₹{labor_charged_display:,.0f}")
+                    m2.metric("Labor", f"₹{labor_charged_display:,.0f}")
                     m3.metric("Grand Total", f"₹{rounded_grand_total:,.0f}")
-                    m4.metric("Projected Profit", f"₹{total_profit:,.0f}")
+                    m4.metric("Total Profit", f"₹{total_profit:,.0f}")
+                    m5.metric("Advance Required", f"₹{advance_amount:,.0f}")
                     
                     if st.button("💾 Save Changes", key=f"sv_{client['id']}"):
-                        # NaN Fix
-                        edited_est['Qty'] = edited_est['Qty'].fillna(0)
-                        edited_est['Base Rate'] = edited_est['Base Rate'].fillna(0)
-                        edited_est['Item'] = edited_est['Item'].fillna("")
-                        edited_est['Unit'] = edited_est['Unit'].fillna("")
-                        
-                        new_json = {
-                            "items": edited_est.to_dict(orient="records"),
-                            "days": s_days,
-                            "margins": est_data.get('margins')
-                        }
+                        df_to_save = edited_est.copy()
+                        for col in ['Qty', 'Base Rate', 'Total Price', 'Unit Price']:
+                            df_to_save[col] = pd.to_numeric(df_to_save[col].fillna(0))
+                        for col in ['Item', 'Unit']:
+                            df_to_save[col] = df_to_save[col].fillna("")
+
+                        new_json = {"items": df_to_save.to_dict(orient="records"), "days": s_days, "margins": est_data.get('margins')}
                         run_query(supabase.table("clients").update({"internal_estimate": new_json}).eq("id", client['id']))
                         st.toast("Saved!", icon="✅")
                     
                     st.write("#### 📥 Download Bills")
                     c_pdf1, c_pdf2 = st.columns(2)
-                    
                     pdf_client = create_pdf(client['name'], edited_est.to_dict(orient="records"), s_days, labor_charged_display, rounded_grand_total, advance_amount)
                     c_pdf1.download_button("📄 Client Invoice", pdf_client, f"Invoice_{client['name']}.pdf", "application/pdf", key=f"pdf_c_{client['id']}")
                     
                     if is_work_done:
-                        internal_profit = rounded_grand_total - total_base_cost
-                        pdf_internal = create_internal_pdf(client['name'], edited_est.to_dict(orient="records"), s_days, labor_actual_cost, labor_charged_display, rounded_grand_total, internal_profit)
-                        c_pdf2.download_button("💼 Internal Report (With Profit)", pdf_internal, f"Internal_{client['name']}.pdf", "application/pdf", key=f"pdf_i_{client['id']}")
-                    else:
-                        c_pdf2.info("Mark status as 'Work Done' to generate Internal Profit Report.")
-                else:
-                    st.warning("Estimate Empty")
+                        pdf_internal = create_internal_pdf(client['name'], edited_est.to_dict(orient="records"), s_days, labor_actual_cost, labor_charged_display, rounded_grand_total, total_profit)
+                        c_pdf2.download_button("💼 Internal Report", pdf_internal, f"Internal_{client['name']}.pdf", "application/pdf", key=f"pdf_i_{client['id']}")
+                    else: c_pdf2.info("Mark status as 'Work Done' for Internal Report.")
+                else: st.warning("Estimate Empty")
 
 # --- TAB 2: NEW CLIENT ---
 with tab2:
@@ -411,14 +384,14 @@ with tab2:
         lat, lng = gps_new['coords']['latitude'], gps_new['coords']['longitude']
         st.caption(f"Signal Found: {lat:.4f}, {lng:.4f}")
         if st.button("⬇️ Paste to Form", key="paste_new"):
-            st.session_state['new_client_loc'] = f"http://googleusercontent.com/maps.google.com/?q={lat},{lng}"
+            st.session_state['nc_loc'] = f"http://googleusercontent.com/maps.google.com/?q={lat},{lng}"
             st.rerun()
 
     with st.form("new_client"):
         c1, c2 = st.columns(2)
         nm, ph = c1.text_input("Client Name"), c2.text_input("Phone")
         ad = st.text_area("Address")
-        val_loc = st.session_state.get('new_client_loc', "")
+        val_loc = st.session_state.get('nc_loc', "")
         lo = st.text_input("Google Maps Link", value=val_loc)
         
         if st.form_submit_button("Create Client", type="primary"):
@@ -428,7 +401,7 @@ with tab2:
             }))
             if res and res.data:
                 st.success(f"Client {nm} Added!")
-                if 'new_client_loc' in st.session_state: del st.session_state['new_client_loc']
+                if 'nc_loc' in st.session_state: del st.session_state['nc_loc']
                 time.sleep(1); st.rerun()
             else: st.error("Save Failed.")
 
@@ -493,20 +466,25 @@ with tab3:
             rounded_gt = math.ceil(raw_gt / 100) * 100
             total_profit = rounded_gt - total_base_cost
             advance_amount = total_base_cost + (total_profit * 0.10)
-            delta = rounded_gt - raw_gt
-            disp_lt = raw_lt + delta
+            disp_lt = raw_lt + (rounded_gt - raw_gt)
             
             st.divider()
-            c1, c2, c3, c4 = st.columns(4)
+            c1, c2, c3, c4, c5 = st.columns(5)
             c1.metric("Material", f"₹{mt:,.0f}")
-            c2.metric("Labor", f"₹{disp_lt:,.0f}", help=f"Includes Rounding: +₹{delta:.0f}")
+            c2.metric("Labor", f"₹{disp_lt:,.0f}")
             c3.metric("Grand Total", f"₹{rounded_gt:,.0f}")
-            c4.metric("Projected Profit", f"₹{total_profit:,.0f}")
+            c4.metric("Total Profit", f"₹{total_profit:,.0f}")
+            c5.metric("Advance Required", f"₹{advance_amount:,.0f}")
             
             cs, cp = st.columns(2)
             if cs.button("💾 Save", type="primary"):
-                edf['Qty'] = edf['Qty'].fillna(0); edf['Base Rate'] = edf['Base Rate'].fillna(0); edf['Item'] = edf['Item'].fillna(""); edf['Unit'] = edf['Unit'].fillna("")
-                cit = edf.to_dict(orient="records")
+                df_to_save = edf.copy()
+                for col in ['Qty', 'Base Rate', 'Total Price']:
+                    df_to_save[col] = pd.to_numeric(df_to_save[col].fillna(0))
+                for col in ['Item', 'Unit']:
+                    df_to_save[col] = df_to_save[col].fillna("")
+                cit = df_to_save.to_dict(orient="records")
+
                 sobj = {"items": cit, "days": dys, "margins": {'p': am['part_margin'], 'l': am['labor_margin'], 'e': am['extra_margin']} if uc else None}
                 res = run_query(supabase.table("clients").update({"internal_estimate": sobj}).eq("id", tc['id']))
                 if res and res.data: st.toast("Saved!", icon="✅")
@@ -542,10 +520,12 @@ with tab4:
         edited_inv = st.data_editor(inv_df, num_rows="dynamic", key="inv_table_edit")
         
         if st.button("💾 Save Inventory Changes"):
-            edited_inv['base_rate'] = edited_inv['base_rate'].fillna(0)
-            edited_inv['item_name'] = edited_inv['item_name'].fillna("")
-            edited_inv['Unit'] = edited_inv['Unit'].fillna("")
-            recs = edited_inv.to_dict(orient="records")
+            df_to_save = edited_inv.copy()
+            df_to_save['base_rate'] = pd.to_numeric(df_to_save['base_rate'].fillna(0))
+            df_to_save['item_name'] = df_to_save['item_name'].fillna("")
+            df_to_save['Unit'] = df_to_save['Unit'].fillna("")
+            recs = df_to_save.to_dict(orient="records")
+
             errors = 0
             for row in recs:
                 if row.get('item_name'):
@@ -559,3 +539,4 @@ with tab4:
         np = st.text_input("New Password", type="password")
         if st.form_submit_button("Update Password"):
             run_query(supabase.table("users").update({"password": np}).eq("username", st.session_state.username)); st.success("Updated!")
+
