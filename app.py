@@ -673,85 +673,81 @@ with tab5:
         # --- Top Section: Left Column (Record Purchase) ---
         with col_purchase:
             st.subheader("Record Purchase")
-            try:
-                suppliers_response = supabase.table("suppliers").select("id, name").order("name").execute()
-            except Exception as e:
-                st.error(f"Database Error: {e}")
-                suppliers_response = None
-            try:
-                inventory_response = supabase.table("inventory").select("item_name, base_rate").order("item_name").execute()
-            except Exception as e:
-                st.error(f"Database Error: {e}")
-                inventory_response = None
-    
-            supplier_options = {s['name']: s['id'] for s in suppliers_response.data} if suppliers_response and suppliers_response.data else {}
-            inventory_options = {i['item_name']: i for i in inventory_response.data} if inventory_response and inventory_response.data else {}
-            if not supplier_options:
-                st.warning("Please add a supplier in the 'Directory' section first.")
-            if not inventory_options:
-                st.warning("Please add inventory items in the 'Settings' tab first.")
+            with st.form("record_purchase_form"):
+                try:
+                    suppliers_response = supabase.table("suppliers").select("id, name").order("name").execute()
+                except Exception as e:
+                    st.error(f"Database Error: {e}")
+                    suppliers_response = None
+                try:
+                    inventory_response = supabase.table("inventory").select("item_name, base_rate").order("item_name").execute()
+                except Exception as e:
+                    st.error(f"Database Error: {e}")
+                    inventory_response = None
+        
+                supplier_options = {s['name']: s['id'] for s in suppliers_response.data} if suppliers_response and suppliers_response.data else {}
+                inventory_options = {i['item_name']: i for i in inventory_response.data} if inventory_response and inventory_response.data else {}
+                if not supplier_options:
+                    st.warning("Please add a supplier in the 'Directory' section first.")
+                if not inventory_options:
+                    st.warning("Please add inventory items in the 'Settings' tab first.")
 
-            if supplier_options and inventory_options:
-                selected_supplier_name = st.selectbox("Select Supplier", list(supplier_options.keys()), key="pur_sup_sel")
-                selected_item_name = st.selectbox("Select Item", list(inventory_options.keys()), key="pur_item_sel")
+                if supplier_options and inventory_options:
+                    selected_supplier_name = st.selectbox("Select Supplier", list(supplier_options.keys()), key="pur_sup_sel")
+                    selected_item_name = st.selectbox("Select Item", list(inventory_options.keys()), key="pur_item_sel")
 
-                default_rate = inventory_options.get(selected_item_name, {}).get('base_rate', 0.0)
-                purchase_rate = st.number_input("Buying Rate", min_value=0.0, value=float(default_rate), step=0.01, key=f"rate_{selected_item_name}")
-                purchase_qty = st.number_input("Quantity", min_value=0.0, value=1.0, step=1.0, format="%.2f", key="pur_qty")
-                update_inventory_base_rate = st.checkbox("Update Inventory Base Rate?", value=True, key="pur_update_inv")
+                    default_rate = inventory_options.get(selected_item_name, {}).get('base_rate', 0.0)
+                    purchase_rate = st.number_input("Buying Rate", min_value=0.0, value=float(default_rate), step=0.01, key=f"rate_{selected_item_name}")
+                    purchase_qty = st.number_input("Quantity", min_value=0.0, value=1.0, step=1.0, format="%.2f", key="pur_qty")
+                    update_inventory_base_rate = st.checkbox("Update Inventory Base Rate?", value=True, key="pur_update_inv")
 
-                if st.button("✅ Record Transaction", type="primary", key="pur_record_btn"):
-                    if selected_supplier_name and selected_item_name and purchase_qty > 0:
-                        supplier_id = supplier_options[selected_supplier_name]
-                        total_cost = purchase_rate * purchase_qty
+                    if st.form_submit_button("✅ Record Transaction", type="primary"):
+                        if selected_supplier_name and selected_item_name and purchase_qty > 0:
+                            supplier_id = supplier_options[selected_supplier_name]
+                            total_cost = purchase_rate * purchase_qty
 
-                        try:
-                            res_purchase = supabase.table("purchase_log").insert({
-                                "supplier_id": supplier_id,
-                                "item_name": selected_item_name,
-                                "qty": purchase_qty,
-                                "rate": purchase_rate,
-                                "total_cost": total_cost
-                            }).execute()
-                        except Exception as e:
-                            st.error(f"Database Error: {e}")
-                            res_purchase = None
-
-                        if res_purchase and res_purchase.data:
-                            # This is not atomic and can lead to race conditions.
-                            # A better solution would be to use a PostgreSQL function.
                             try:
-                                current_inv_item = supabase.table("inventory").select("stock_quantity").eq("item_name", selected_item_name).execute()
-                                if current_inv_item and current_inv_item.data:
-                                    current_stock = current_inv_item.data[0].get('stock_quantity', 0)
-                                    new_stock = current_stock + purchase_qty
-                                    res_stock_update = supabase.table("inventory").update({"stock_quantity": new_stock}).eq("item_name", selected_item_name).execute()
-                                else:
-                                    res_stock_update = None # Indicate failure to fetch current stock
+                                res_purchase = supabase.table("purchase_log").insert({
+                                    "supplier_id": supplier_id,
+                                    "item_name": selected_item_name,
+                                    "qty": purchase_qty,
+                                    "rate": purchase_rate,
+                                    "total_cost": total_cost
+                                }).execute()
                             except Exception as e:
                                 st.error(f"Database Error: {e}")
-                                res_stock_update = None
+                                res_purchase = None
 
-                            if res_stock_update and res_stock_update.data:
-                                if update_inventory_base_rate:
-                                    try:
-                                        res_inventory = supabase.table("inventory").update({"base_rate": purchase_rate}).eq("item_name", selected_item_name).execute()
-                                        if res_inventory and res_inventory.data:
-                                            st.success("Purchase Recorded, Stock & Inventory Updated!")
-                                            time.sleep(0.5); st.rerun()
-                                        else:
-                                            st.error("Purchase Recorded, Stock Updated, but failed to update Inventory Base Rate.")
-                                    except Exception as e:
-                                        st.error(f"Database Error: {e}")
-                                else:
-                                    st.success("Purchase Recorded & Stock Updated!")
-                                    time.sleep(0.5); st.rerun()
-                            else:
-                                st.error("Purchase Recorded, but failed to update Stock Quantity.")
-                        else:
-                            st.error("Failed to record purchase.")
-                    else:
-                        st.warning("Please fill all required fields and ensure quantity is > 0.")
+                                                    if res_purchase and res_purchase.data:
+                                                        try:
+                                                            supabase.rpc(
+                                                                "increment_stock",
+                                                                {
+                                                                    "item_name_param": selected_item_name,
+                                                                    "increment_by_param": purchase_qty
+                                                                }
+                                                            ).execute()
+                                                        except Exception as e:
+                                                            st.error(f"Database Error: {e}")
+                                                            res_stock_update = None
+                                                        
+                                                        if update_inventory_base_rate:
+                                                            try:
+                                                                res_inventory = supabase.table("inventory").update({"base_rate": purchase_rate}).eq("item_name", selected_item_name).execute()
+                                                                if res_inventory and res_inventory.data:
+                                                                    st.success("Purchase Recorded, Stock & Inventory Updated!")
+                                                                    time.sleep(0.5); st.rerun()
+                                                                else:
+                                                                    st.error("Purchase Recorded, Stock Updated, but failed to update Inventory Base Rate.")
+                                                            except Exception as e:
+                                                                st.error(f"Database Error: {e}")
+                                                        else:
+                                                            st.success("Purchase Recorded & Stock Updated!")
+                                                            time.sleep(0.5); st.rerun()
+                                                    else:
+                                                        st.error("Failed to record purchase.")                        else:
+                            st.warning("Please fill all required fields and ensure quantity is > 0.")
+        
         
         # --- Top Section: Right Column (Add New Supplier) ---
         with col_manage:
@@ -895,6 +891,7 @@ with tab6:
                     {'Category': 'Material Expense', 'Amount': float(total_material_expense)},
                     {'Category': 'Labor Expense', 'Amount': float(total_labor_expense)}
                 ])
+                chart_data_bar['Amount'] = chart_data_bar['Amount'].astype(float)
                 bar_chart = alt.Chart(chart_data_bar).mark_bar().encode(
                     x=alt.X('Category:N', axis=alt.Axis(title=None, labels=True)),
                     y=alt.Y('Amount:Q', axis=alt.Axis(title="Amount (₹)", labels=True)),
@@ -914,6 +911,7 @@ with tab6:
                     {'Cost Type': 'Material Cost', 'Amount': float(total_material_expense)},
                     {'Cost Type': 'Labor Cost', 'Amount': float(total_labor_expense)}
                 ])
+                chart_data_pie['Amount'] = chart_data_pie['Amount'].astype(float)
                 total_cost_for_pie = float(total_material_expense) + float(total_labor_expense)
                 if total_cost_for_pie > 0:
                     pie_chart = alt.Chart(chart_data_pie).mark_arc(innerRadius=50).encode( # Added innerRadius
