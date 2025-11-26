@@ -617,3 +617,116 @@ with tab4:
         np = st.text_input("New Password", type="password")
         if st.form_submit_button("Update Password"):
             run_query(supabase.table("users").update({"password": np}).eq("username", st.session_state.username)); st.success("Updated!")
+
+# --- TAB 5: SUPPLIERS ---
+with tab5:
+    st.header("🚚 Supplier & Purchase Management")
+
+    col_purchase, col_manage = st.columns([2, 1])
+
+    with col_manage:
+        st.subheader("Directory")
+        with st.form("add_supplier_form"):
+            s_name = st.text_input("Supplier Name")
+            s_contact = st.text_input("Contact Person")
+            s_phone = st.text_input("Phone")
+            if st.form_submit_button("Add New Supplier", type="primary"):
+                if s_name:
+                    res = run_query(supabase.table("suppliers").insert({"name": s_name, "contact_person": s_contact, "phone": s_phone}))
+                    if res and res.data:
+                        st.success(f"Supplier {s_name} added!")
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.error("Failed to add supplier.")
+                else:
+                    st.warning("Supplier Name cannot be empty.")
+        
+        st.write("---")
+        st.subheader("Existing Suppliers")
+        supplier_resp = run_query(supabase.table("suppliers").select("*").order("name"))
+        if supplier_resp and supplier_resp.data:
+            df_suppliers = pd.DataFrame(supplier_resp.data)
+            st.dataframe(df_suppliers, use_container_width=True, hide_index=True)
+        else:
+            st.info("No suppliers found.")
+
+    with col_purchase:
+        st.subheader("Record Purchase")
+        # Fetch suppliers and inventory items
+        supplier_resp_p = run_query(supabase.table("suppliers").select("id, name").order("name"))
+        inventory_resp_p = run_query(supabase.table("inventory").select("item_name, base_rate").order("item_name"))
+
+        supplier_options = {s['name']: s['id'] for s in supplier_resp_p.data} if supplier_resp_p and supplier_resp_p.data else {}
+        inventory_options = {i['item_name']: i for i in inventory_resp_p.data} if inventory_resp_p and inventory_resp_p.data else {}
+
+        if not supplier_options:
+            st.warning("Please add suppliers first in the right column.")
+        if not inventory_options:
+            st.warning("Please add inventory items in the Settings tab.")
+
+        if supplier_options and inventory_options:
+            with st.form("record_purchase_form"):
+                selected_supplier_name = st.selectbox("Select Supplier", list(supplier_options.keys()))
+                selected_item_name = st.selectbox("Select Item", list(inventory_options.keys()))
+
+                # Pre-fill rate with current base_rate from inventory if available
+                default_rate = inventory_options.get(selected_item_name, {}).get('base_rate', 0.0)
+                purchase_rate = st.number_input("Buying Rate", min_value=0.0, value=float(default_rate), step=0.01)
+                purchase_qty = st.number_input("Quantity", min_value=0.0, value=1.0, step=0.01)
+                update_inventory_base_rate = st.checkbox("Update Inventory Base Rate?", value=True)
+
+                if st.form_submit_button("Record Purchase", type="primary"):
+                    if selected_supplier_name and selected_item_name and purchase_qty > 0:
+                        supplier_id = supplier_options[selected_supplier_name]
+                        total_cost = purchase_rate * purchase_qty
+
+                        # Insert into purchase_log
+                        res_purchase = run_query(supabase.table("purchase_log").insert({
+                            "supplier_id": supplier_id,
+                            "item_name": selected_item_name,
+                            "qty": purchase_qty,
+                            "rate": purchase_rate,
+                            "total_cost": total_cost
+                        }))
+
+                        if res_purchase and res_purchase.data:
+                            if update_inventory_base_rate:
+                                # Update inventory base_rate
+                                res_inventory = run_query(supabase.table("inventory").update({"base_rate": purchase_rate}).eq("item_name", selected_item_name))
+                                if res_inventory and res_inventory.data:
+                                    st.success("Purchase Recorded & Inventory Updated!")
+                                    time.sleep(0.5)
+                                    st.rerun()
+                                else:
+                                    st.error("Purchase Recorded, but failed to update Inventory Base Rate.")
+                            else:
+                                st.success("Purchase Recorded!")
+                                time.sleep(0.5)
+                                st.rerun()
+                        else:
+                            st.error("Failed to record purchase.")
+                    else:
+                        st.warning("Please fill all required fields and ensure quantity is greater than zero.")
+
+    st.divider()
+    st.subheader("Recent History")
+    purchase_log_resp = run_query(supabase.table("purchase_log").select("*").order("created_at", desc=True).limit(50))
+    supplier_resp_history = run_query(supabase.table("suppliers").select("id, name"))
+
+    if purchase_log_resp and purchase_log_resp.data and supplier_resp_history and supplier_resp_history.data:
+        df_purchases = pd.DataFrame(purchase_log_resp.data)
+        df_suppliers_history = pd.DataFrame(supplier_resp_history.data).rename(columns={'name': 'supplier_name'})
+        
+        # Merge to get supplier name
+        df_merged = pd.merge(df_purchases, df_suppliers_history, left_on='supplier_id', right_on='id', how='left')
+        
+        # Select and reorder columns for display
+        display_cols = ['created_at', 'supplier_name', 'item_name', 'qty', 'rate', 'total_cost']
+        df_merged['created_at'] = pd.to_datetime(df_merged['created_at']).dt.strftime('%Y-%m-%d %H:%M')
+        df_merged['rate'] = df_merged['rate'].round(2)
+        df_merged['total_cost'] = df_merged['total_cost'].round(2)
+
+        st.dataframe(df_merged[display_cols], use_container_width=True, hide_index=True)
+    else:
+        st.info("No purchases recorded yet.")
