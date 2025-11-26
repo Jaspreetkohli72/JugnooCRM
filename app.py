@@ -11,12 +11,18 @@ import extra_streamlit_components as stx
 # ---------------------------
 # 1. SETUP & CONNECTION
 # ---------------------------
-st.set_page_config(page_title="Jugnoo CRM", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="Jugnoo", page_icon="🏗️", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #0E1117 !important; }
     header[data-testid="stHeader"] { background-color: #0E1117 !important; }
+    [data-testid="stAppViewContainer"] {
+        background-color: #0e1117;
+    }
+    [data-testid="stSidebar"] {
+        background-color: #0e1117;
+    }
     #MainMenu { visibility: hidden; }
     footer { visibility: hidden; }
     [data-testid="stMetric"] {
@@ -57,7 +63,7 @@ def check_login(username, password):
         return False
 
 def login_section():
-    st.title("🔒 Jugnoo CRM")
+    st.title("🔒 Jugnoo")
     time.sleep(0.1)
     cookie_user = cookie_manager.get(cookie="jugnoo_user")
     if cookie_user:
@@ -114,7 +120,7 @@ def create_pdf(client_name, items, labor_days, labor_total, grand_total):
     
     # Header
     pdf.set_font("Arial", 'B', 20)
-    pdf.cell(0, 10, "Jugnoo CRM", ln=True, align='L')
+    pdf.cell(0, 10, "Jugnoo", ln=True, align='L')
     pdf.set_font("Arial", 'I', 10)
     pdf.cell(0, 6, "Smart Automation Solutions", ln=True, align='L')
     pdf.line(10, 28, 200, 28)
