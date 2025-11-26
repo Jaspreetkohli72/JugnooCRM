@@ -164,3 +164,12 @@ def calculate_estimate_details(edf_items_list, days, margins, global_settings):
         "disp_lt": disp_lt, # Displayed labor total (includes rounding diff)
         "edf_details_df": edf_details_df # Return the updated dataframe as well
     }
+
+def calculate_profit_row(row):
+    qty = float(row.get('Qty', 0))
+    base_rate = float(row.get('Base Rate', 0))
+    unit = row.get('Unit', 'pcs')
+    total_sell = float(row.get('Total Sell Price', 0))
+    factor = CONVERSIONS.get(unit, 1.0)
+    total_cost = base_rate * qty * factor
+    return total_sell - total_cost

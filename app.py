@@ -62,8 +62,13 @@ cookie_manager = get_manager()
 
 def check_login(username, password):
     try:
-        res = supabase.table("users").select("*").eq("username", username).eq("password", password).execute()
-        return len(res.data) > 0
+        res = run_query(supabase.table("users").select("password").eq("username", username))
+        if res and res.data:
+            hashed_password = res.data[0]['password']
+            # This is not hashing yet, just a plain text comparison.
+            # Hashing will be implemented in a later step.
+            return password == hashed_password
+        return False
     except:
         return False
 
@@ -303,15 +308,7 @@ with tab1:
                         
                         # Use calculate_estimate_details result for profit details if possible, or recalculate
                         # For now, keeping the original detailed profit calculation here, ensuring it uses edited_est_with_prices
-                        def calculate_profit_row(row):
-                            qty = float(row.get('Qty', 0))
-                            base_rate = float(row.get('Base Rate', 0))
-                            unit = row.get('Unit', 'pcs')
-                            factor = helpers.CONVERSIONS.get(unit, 1.0)
-                            total_cost = base_rate * qty * factor
-                            return total_sell - total_cost
-
-                        df_profit['Row Profit'] = df_profit.apply(calculate_profit_row, axis=1)
+                        df_profit['Row Profit'] = df_profit.apply(helpers.calculate_profit_row, axis=1)
                         
                         # Apply formatting
                         df_profit['Base Rate'] = df_profit['Base Rate'].round(2)
@@ -561,9 +558,21 @@ with tab4:
     st.divider()
     with st.form("pwd_chg"):
         st.subheader("User Profile")
+        op = st.text_input("Old Password", type="password")
         np = st.text_input("New Password", type="password")
         if st.form_submit_button("Update Password"):
-            run_query(supabase.table("users").update({"password": np}).eq("username", st.session_state.username)); st.success("Updated!")
+            # First, check if the old password is correct
+            res = run_query(supabase.table("users").select("password").eq("username", st.session_state.username))
+            if res and res.data:
+                current_password = res.data[0]['password']
+                if op == current_password:
+                    # If old password is correct, update to new password
+                    run_query(supabase.table("users").update({"password": np}).eq("username", st.session_state.username))
+                    st.success("Password updated successfully!")
+                else:
+                    st.error("Incorrect old password.")
+            else:
+                st.error("Could not verify user.")
 
 # --- TAB 5: SUPPLIERS ---
 with tab5:
