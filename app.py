@@ -6,6 +6,7 @@ import time
 import math
 from fpdf import FPDF
 from streamlit_js_eval import get_geolocation
+import altair as alt
 import extra_streamlit_components as stx
 
 # ---------------------------
@@ -215,6 +216,8 @@ def create_internal_pdf(client_name, items, labor_days, labor_cost, labor_charge
 # ---------------------------
 
 
+CONVERSIONS = {'pcs': 1.0, 'each': 1.0, 'm': 1.0, 'cm': 0.01, 'ft': 0.3048, 'in': 0.0254}
+
 if not supabase: st.stop()
 
 # Top Bar
@@ -226,7 +229,7 @@ if top_c2.button("Log Out", type="secondary"):
     st.rerun()
 st.divider()
 
-tab1, tab2, tab3, tab5, tab4 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Estimator", "🚚 Suppliers", "⚙️ Settings"])
+tab1, tab2, tab3, tab5, tab4, tab6 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Estimator", "🚚 Suppliers", "⚙️ Settings", "📈 P&L"])
 
 # --- TAB 1: DASHBOARD ---
 with tab1:
@@ -776,3 +779,137 @@ with tab5:
         st.dataframe(df_purchases[display_cols], use_container_width=True, hide_index=True)
     else:
         st.info("No purchases recorded yet.")
+
+# --- TAB 6: PROFIT & LOSS ---
+with tab6:
+    st.subheader("📈 Profit & Loss Analysis")
+
+    try:
+        # Fetch Data
+        clients_response = run_query(supabase.table("clients").select("status, internal_estimate"))
+        purchase_log_response = run_query(supabase.table("purchase_log").select("total_cost"))
+        settings = get_settings() # Re-use existing helper function
+
+        if clients_response and clients_response.data and purchase_log_response and purchase_log_response.data and settings:
+            all_clients = clients_response.data
+            purchase_log_data = purchase_log_response.data
+            daily_labor_cost = float(settings.get('daily_labor_cost', 1000.0))
+
+            total_revenue = 0.0
+            total_labor_expense = 0.0 # This will track labor cost for all clients
+            
+            # --- Calculate Revenue and Total Labor Expense ---
+            for client in all_clients:
+                estimate = client.get('internal_estimate')
+                if estimate:
+                    # Calculate labor expense for ALL clients (active/closed)
+                    labor_days = float(estimate.get('days', 0.0))
+                    client_labor_cost = labor_days * daily_labor_cost
+                    total_labor_expense += client_labor_cost
+
+                    # Calculate revenue ONLY for 'Work Done' or 'Closed' clients
+                    if client.get('status') in ["Work Done", "Closed"]:
+                        items = estimate.get('items', [])
+                        
+                        # Recalculate material sell price from internal_estimate items
+                        material_sell_price_for_client = 0.0
+                        for item in items:
+                            try:
+                                qty = float(item.get('Qty', 0))
+                                base_rate = float(item.get('Base Rate', 0))
+                                unit = item.get('Unit', 'pcs')
+                                # Use client's specific margins if available, otherwise global.
+                                client_margins = estimate.get('margins')
+                                am_for_client = client_margins if client_margins else settings
+                                
+                                # If custom margins are stored as {'p': val, 'l': val, 'e': val}, convert to full names
+                                if client_margins and 'p' in client_margins:
+                                    am_for_client = {
+                                        'part_margin': client_margins.get('p', 0),
+                                        'labor_margin': client_margins.get('l', 0),
+                                        'extra_margin': client_margins.get('e', 0)
+                                    }
+
+                                mm_for_client = 1 + (am_for_client.get('part_margin', 0)/100) + (am_for_client.get('labor_margin', 0)/100) + (am_for_client.get('extra_margin', 0)/100)
+
+                                factor = CONVERSIONS.get(unit, 1.0)
+                                if unit in ['m', 'cm', 'ft', 'in']:
+                                    material_sell_price_for_client += base_rate * (qty * factor) * mm_for_client
+                                else:
+                                    material_sell_price_for_client += base_rate * qty * mm_for_client
+                            except (ValueError, TypeError):
+                                pass # Skip items with invalid data
+
+                        client_raw_grand_total = material_sell_price_for_client + client_labor_cost
+                        client_rounded_grand_total = math.ceil(client_raw_grand_total / 100) * 100
+                        total_revenue += client_rounded_grand_total
+
+            # --- Calculate Material Expenses from purchase_log ---
+            total_material_expense = sum(float(log.get('total_cost', 0.0)) for log in purchase_log_data)
+
+            # --- Net Profit Calculation ---
+            total_expenses = total_labor_expense + total_material_expense
+            net_profit = total_revenue - total_expenses
+            net_profit_margin_percent = (net_profit / total_revenue * 100) if total_revenue != 0 else 0
+
+            # --- UI Layout: KPI Metrics ---
+            st.write("#### Key Financial Metrics")
+            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+            kpi1.metric("Total Revenue", f"₹{total_revenue:,.0f}")
+            kpi2.metric("Material Expenses", f"₹{total_material_expense:,.0f}")
+            kpi3.metric("Labor Expenses", f"₹{total_labor_expense:,.0f}")
+            kpi4.metric("Net Profit", f"₹{net_profit:,.0f}", delta=f"{net_profit_margin_percent:,.1f}% Margin")
+
+            st.divider()
+
+            # --- UI Layout: Charts ---
+            st.write("#### Financial Overview")
+            chart_col1, chart_col2 = st.columns(2)
+
+            with chart_col1:
+                st.subheader("Revenue vs Expenses")
+                chart_data_bar = pd.DataFrame({
+                    'Category': ['Revenue', 'Material Expense', 'Labor Expense'],
+                    'Amount': [total_revenue, total_material_expense, total_labor_expense]
+                })
+                # Ensure correct color mapping for a consistent visual identity
+                bar_chart = alt.Chart(chart_data_bar).mark_bar().encode(
+                    x=alt.X('Category:N', axis=alt.Axis(title=None, labels=True)),
+                    y=alt.Y('Amount:Q', axis=alt.Axis(title="Amount (₹)", labels=True)),
+                    color=alt.Color('Category', scale=alt.Scale(domain=['Revenue', 'Material Expense', 'Labor Expense'], range=['#4CAF50', '#F44336', '#FFC107']), legend=None),
+                    tooltip=['Category', alt.Tooltip('Amount', format='₹,.0f')]
+                ).properties(
+                    title='Total Revenue vs Expenses'
+                ).configure_axis(
+                    labelAngle=0
+                )
+                st.altair_chart(bar_chart, use_container_width=True)
+
+            with chart_col2:
+                st.subheader("Cost Split")
+                chart_data_pie = pd.DataFrame({
+                    'Cost Type': ['Material Cost', 'Labor Cost'],
+                    'Amount': [total_material_expense, total_labor_expense]
+                })
+                # Add a conditional check for zero total cost to prevent division by zero in arcs
+                total_cost_for_pie = total_material_expense + total_labor_expense
+                if total_cost_for_pie > 0:
+                    pie_chart = alt.Chart(chart_data_pie).mark_arc(outerRadius=120).encode(
+                        theta=alt.Theta("Amount", stack=True),
+                        color=alt.Color("Cost Type:N", scale=alt.Scale(domain=['Material Cost', 'Labor Cost'], range=['#F44336', '#FFC107']), legend=alt.Legend(title="Cost Type")),
+                        order=alt.Order("Amount", sort="descending"),
+                        tooltip=["Cost Type", alt.Tooltip("Amount", format="₹,.0f"), alt.Tooltip("Amount", format=".1%", title="Percentage", stack=True)]
+                    ).properties(
+                        title='Material vs Labor Cost Split'
+                    )
+
+                    st.altair_chart(pie_chart, use_container_width=True) # Removed text layer for better readability.
+                else:
+                    st.info("No material or labor costs to display in the cost split chart.")
+
+        else:
+            st.info("No data available to perform Profit & Loss analysis. Please ensure clients, purchases, and settings are configured.")
+
+    except Exception as e:
+        st.error(f"An error occurred during Profit & Loss analysis: {e}")
+        st.info("Please ensure the database connection is active and data is correctly formatted.")
