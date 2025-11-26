@@ -213,13 +213,18 @@ def create_internal_pdf(client_name, items, labor_days, labor_cost, labor_charge
 # ---------------------------
 # 4. MAIN UI
 # ---------------------------
-st.sidebar.write(f"👤 **{st.session_state.username}**")
-if st.sidebar.button("Logout"):
+
+
+if not supabase: st.stop()
+
+# Top Bar
+top_c1, top_c2 = st.columns([10, 2])
+top_c1.write(f"👤 Logged in as: **{st.session_state.username}**")
+if top_c2.button("Log Out", type="secondary"):
     st.session_state.logged_in = False
     cookie_manager.delete("jugnoo_user")
     st.rerun()
-
-if not supabase: st.stop()
+st.divider()
 
 tab1, tab2, tab3, tab5, tab4 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Estimator", "🚚 Suppliers", "⚙️ Settings"])
 
@@ -645,55 +650,7 @@ with tab5:
         # Moved existing suppliers table outside columns
     
     # Existing Suppliers section (full width)
-            st.write("---")
-            st.subheader("Existing Suppliers")
-            supplier_resp = run_query(supabase.table("suppliers").select("*").order("name"))
-            if supplier_resp and supplier_resp.data:
-                df_suppliers = pd.DataFrame(supplier_resp.data)
-                
-                edited_suppliers = st.data_editor(df_suppliers, num_rows="dynamic", use_container_width=True, key="sup_editor",
-                                                    column_config={
-                                                        "id": None,  # Hides the ID column to save space
-                                                        "name": st.column_config.TextColumn("Supplier Name", width="large", required=True),
-                                                        "contact_person": st.column_config.TextColumn("Contact Person", width="medium"),
-                                                        "phone": st.column_config.TextColumn("Phone", width="medium")
-                                                    })
-                
-                if st.button("💾 Save Changes", key="save_sup_changes"):
-                    df_to_save = edited_suppliers.copy()
-                    # Ensure 'id' is preserved for upsert, handle newly added rows with no ID
-                    df_to_save['id'] = df_to_save['id'].replace({None: math.nan}).fillna(0).astype(int) # Set new rows ID to 0 for upsert
-                    df_to_save['name'] = df_to_save['name'].fillna("")
-                    
-                    recs_to_upsert = df_to_save.to_dict(orient="records")
-                    
-                    errors_occurred = False
-                    for record in recs_to_upsert:
-                        if record.get("name"): # Ensure name is not empty for upsert
-                            if record.get("id") == 0: # New row
-                                del record['id'] # Supabase handles id generation for new records
-                                res = run_query(supabase.table("suppliers").insert(record))
-                            else: # Existing row
-                                res = run_query(supabase.table("suppliers").upsert(record))
-                            
-                            if not (res and res.data):
-                                errors_occurred = True
-                                st.error(f"Failed to save supplier: {record.get('name')}")
-                        else:
-                            errors_occurred = True
-                            st.warning(f"Skipped saving a row with empty supplier name.")
-        
-                    if not errors_occurred:
-                        st.success("Suppliers Updated!")
-                        time.sleep(0.5)
-                        st.rerun()
-                    else:
-                        st.warning("Some supplier changes could not be saved.")
-            else:
-                st.info("No suppliers found.")
-        
-            st.write("---") # Add a divider here after the existing suppliers table and before recent history.
-    with col_purchase:
+                    # Existing Suppliers table will be moved outside columns    with col_purchase:
         st.subheader("Record Purchase")
         # Fetch suppliers and inventory items
         supplier_resp_p = run_query(supabase.table("suppliers").select("id, name").order("name"))
@@ -749,6 +706,56 @@ with tab5:
                         st.error("Failed to record purchase.")
                 else:
                     st.warning("Please fill all required fields and ensure quantity is greater than zero.")
+
+    # Existing Suppliers section (full width)
+    st.write("---")
+    st.subheader("Existing Suppliers")
+    supplier_resp = run_query(supabase.table("suppliers").select("*").order("name"))
+    if supplier_resp and supplier_resp.data:
+        df_suppliers = pd.DataFrame(supplier_resp.data)
+        
+        edited_suppliers = st.data_editor(df_suppliers, num_rows="dynamic", use_container_width=True, key="sup_editor",
+                                            column_config={
+                                                "id": None,  # Hides the ID column to save space
+                                                "name": st.column_config.TextColumn("Supplier Name", width="large", required=True),
+                                                "contact_person": st.column_config.TextColumn("Contact Person", width="medium"),
+                                                "phone": st.column_config.TextColumn("Phone", width="medium")
+                                            })
+        
+        if st.button("💾 Save Changes", key="save_sup_changes"):
+            df_to_save = edited_suppliers.copy()
+            # Ensure 'id' is preserved for upsert, handle newly added rows with no ID
+            df_to_save['id'] = df_to_save['id'].replace({None: math.nan}).fillna(0).astype(int) # Set new rows ID to 0 for upsert
+            df_to_save['name'] = df_to_save['name'].fillna("")
+            
+            recs_to_upsert = df_to_save.to_dict(orient="records")
+            
+            errors_occurred = False
+            for record in recs_to_upsert:
+                if record.get("name"): # Ensure name is not empty for upsert
+                    if record.get("id") == 0: # New row
+                        del record['id'] # Supabase handles id generation for new records
+                        res = run_query(supabase.table("suppliers").insert(record))
+                    else: # Existing row
+                        res = run_query(supabase.table("suppliers").upsert(record))
+                    
+                    if not (res and res.data):
+                        errors_occurred = True
+                        st.error(f"Failed to save supplier: {record.get('name')}")
+                else:
+                    errors_occurred = True
+                    st.warning(f"Skipped saving a row with empty supplier name.")
+
+            if not errors_occurred:
+                st.success("Suppliers Updated!")
+                time.sleep(0.5)
+                st.rerun()
+            else:
+                st.warning("Some supplier changes could not be saved.")
+    else:
+        st.info("No suppliers found.")
+
+    st.write("---") # Add a divider here after the existing suppliers table and before recent history.
 
     st.divider()
     st.subheader("Recent History")
