@@ -1,6 +1,7 @@
 import streamlit as st
 from supabase import create_client
 from utils import helpers, auth
+from utils.helpers import create_pdf
 
 from datetime import datetime, timedelta
 import time
@@ -227,7 +228,7 @@ with tab1:
                             if s_date: upd["start_date"] = s_date.isoformat()
                             try:
                                 res = supabase.table("clients").update(upd).eq("id", client['id']).execute()
-                                if res and res.data: st.success("Status Saved!"); time.sleep(0.5); st.rerun()
+                                if res and res.data: st.success("Status Saved!"); st.rerun()
                             except Exception as e:
                                 st.error(f"Database Error: {e}")
     
@@ -235,7 +236,7 @@ with tab1:
                         supabase.table("clients").delete().eq("id", client['id']).execute()
                     ), key=f"del_{client['id']}")
                     if st.session_state.get(f"del_{client['id']}"): # Check if button was clicked
-                        st.success("Client Deleted!"); time.sleep(1); st.rerun()
+                        st.success("Client Deleted!"); st.rerun()
     
                     if client.get('internal_estimate'):
                         st.divider()
@@ -307,7 +308,7 @@ with tab1:
                             
                             st.write("#### 📥 Download Bills")
                             c_pdf1, c_pdf2 = st.columns(2)
-                            pdf_client = helpers.create_pdf(client['name'], edited_est_with_prices.to_dict(orient="records"), s_days, labor_charged_display, rounded_grand_total, advance_amount)
+                            pdf_client = create_pdf(client['name'], edited_est_with_prices.to_dict(orient="records"), s_days, labor_charged_display, rounded_grand_total, advance_amount)
                             c_pdf1.download_button("📄 Client Invoice", pdf_client, f"Invoice_{client['name']}.pdf", "application/pdf", key=f"pdf_c_{client['id']}")
                             st.write("#### Internal Profit Analysis")
                             if client.get('status') == "Work Done":
@@ -340,7 +341,7 @@ with tab2:
     loc_new_client = get_geolocation(component_key="geo_tab2_new_client")
     gmaps_new_client = ""
     if loc_new_client:
-        st.write(f"Detected: {loc_new_client['coords']['latitude']}, {loc_new_client['coords']['longitude']}")
+        st.write(f"Detected: {loc['coords']['latitude']}, {loc['coords']['longitude']}")
         if st.button("Paste Location to Form", key="paste_loc_tab2_new_client"):
             gmaps_new_client = f"http://googleusercontent.com/maps.google.com/?q={loc_new_client['coords']['latitude']},{loc_new_client['coords']['longitude']}"
             st.session_state["loc_in_new_client"] = gmaps_new_client
@@ -358,7 +359,7 @@ with tab2:
         if st.form_submit_button("Create Client", type="primary"):
             try:
                 res = supabase.table("clients").insert({"name": nm, "phone": ph, "address": ad, "location": ml_new_client, "status": "Estimate Given", "created_at": datetime.now().isoformat()}).execute()
-                if res and res.data: st.success(f"Client {nm} Added!"); time.sleep(1); st.rerun()
+                if res and res.data: st.success(f"Client {nm} Added!"); st.rerun()
                 else: st.error("Save Failed.")
             except Exception as e:
                 st.error(f"Database Error: {e}")
@@ -536,7 +537,7 @@ with tab4:
         if st.form_submit_button("Update Settings"):
             try:
                 supabase.table("settings").upsert({"id": 1, "part_margin": p, "labor_margin": l, "extra_margin": e, "daily_labor_cost": lc}).execute()
-                st.success("Saved!"); st.cache_resource.clear(); time.sleep(1); st.rerun()
+                st.success("Saved!"); st.cache_resource.clear(); st.rerun()
             except Exception as e:
                 st.error(f"Database Error: {e}")
             
@@ -593,7 +594,6 @@ with tab4:
                         st.error(f"Error saving {row.get('item_name')}: {e}")
             if errors == 0: 
                 st.success("Inventory Updated!")
-                time.sleep(0.5)
                 st.rerun()
             else: 
                 st.warning(f"{errors} items failed to save.")
@@ -663,7 +663,7 @@ with tab5:
 
             if not errors_occurred:
                 st.success("Suppliers Updated!")
-                time.sleep(0.5); st.rerun()
+                st.rerun()
     else:
         st.info("No suppliers found. Add one using the form above.")
 
@@ -676,23 +676,18 @@ with tab5:
             with st.form("record_purchase_form"):
                 try:
                     suppliers_response = supabase.table("suppliers").select("id, name").order("name").execute()
-                    if suppliers_response and suppliers_response.data:
-                        supplier_options = {s['name']: s['id'] for s in suppliers_response.data}
-                    else:
-                        supplier_options = {}
                 except Exception as e:
                     st.error(f"Database Error: {e}")
                     suppliers_response = None
                 try:
                     inventory_response = supabase.table("inventory").select("item_name, base_rate").order("item_name").execute()
-                    if inventory_response and inventory_response.data:
-                        inventory_options = {i['item_name']: i for i in inventory_response.data}
-                    else:
-                        inventory_options = {}
                 except Exception as e:
                     st.error(f"Database Error: {e}")
                     inventory_response = None
         
+                supplier_options = {s['name']: s['id'] for s in suppliers_response.data} if suppliers_response and suppliers_response.data else {}
+                inventory_options = {i['item_name']: i for i in inventory_response.data} if inventory_response and inventory_response.data else {}
+                
                 if not supplier_options:
                     st.warning("Please add a supplier in the 'Directory' section first.")
                 if not inventory_options:
@@ -769,7 +764,7 @@ with tab5:
                             res = supabase.table("suppliers").insert({"name": s_name, "contact_person": s_contact, "phone": s_phone, "gstin": s_gstin}).execute()
                             if res and res.data:
                                 st.success(f"Supplier {s_name} added!")
-                                time.sleep(0.5); st.rerun()
+                                st.rerun()
                             else:
                                 st.error("Failed to add supplier.")
                         except Exception as e:

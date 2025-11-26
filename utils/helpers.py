@@ -137,13 +137,9 @@ def calculate_estimate_details(edf_items_list, days, margins, global_settings):
         try:
             qty = float(row.get('Qty', 0))
             base = float(row.get('Base Rate', 0))
-            unit = CONVERSIONS.get(row.get('Unit', 'pcs'), 1.0) # Use CONVERSIONS here as well
-            factor = CONVERSIONS.get(unit, 1.0)
-            
-            if unit in ['m', 'cm', 'ft', 'in']:
-                return base * (qty * factor) * mm
-            else:
-                return base * qty * mm
+            unit_name = row.get('Unit', 'pcs')
+            factor = CONVERSIONS.get(unit_name, 1.0)
+            return base * qty * factor * mm
         except (ValueError, TypeError):
             return 0.0
 
@@ -162,8 +158,8 @@ def calculate_estimate_details(edf_items_list, days, margins, global_settings):
     def calculate_item_base_cost(row):
         qty = float(row.get('Qty', 0))
         base_rate = float(row.get('Base Rate', 0))
-        unit = CONVERSIONS.get(row.get('Unit', 'pcs'), 1.0) # Use CONVERSIONS here as well
-        factor = CONVERSIONS.get(unit, 1.0)
+        unit_name = row.get('Unit', 'pcs')
+        factor = CONVERSIONS.get(unit_name, 1.0)
         return base_rate * qty * factor
     
     total_material_base_cost = edf_details_df.apply(calculate_item_base_cost, axis=1).sum() if not edf_details_df.empty else 0.0
