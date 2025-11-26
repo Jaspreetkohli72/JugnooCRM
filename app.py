@@ -286,19 +286,19 @@ with tab1:
                                                     "Item": st.column_config.TextColumn("Item", width="large"),
                                                     "Unit": st.column_config.SelectboxColumn("Unit", options=["pcs", "m", "cm", "in", "ft"], width="small", required=True),
                                                     "Base Rate": st.column_config.NumberColumn("Base Rate", width="small"),
-                                                    "Unit Price": st.column_config.NumberColumn("Unit Price", width="small", disabled=True),
+                                                    "Unit Price": st.column_config.NumberColumn("Unit Price", format="₹%.2f", width="small", disabled=True),
                                                     "Total Price": st.column_config.NumberColumn("Total Price", width="small", disabled=True)
                                                 })
 
-                    # --- Recalculation Logic ---
+                    # --- Universal Calculation Logic ---
                     s_margins = est_data.get('margins')
                     gs = get_settings()
                     am = s_margins if s_margins else gs
-
-                    CONVERSIONS = {'pcs': 1.0, 'm': 1.0, 'cm': 0.01, 'ft': 0.3048, 'in': 0.0254}
+                    
+                    CONVERSIONS = {'pcs': 1.0, 'each': 1.0, 'm': 1.0, 'cm': 0.01, 'ft': 0.3048, 'in': 0.0254}
                     mm = 1 + (am.get('part_margin', 0)/100) + (am.get('labor_margin', 0)/100) + (am.get('extra_margin', 0)/100)
 
-                    def calc_row_total(row):
+                    def calc_total(row):
                         try:
                             qty = float(row.get('Qty', 0))
                             base = float(row.get('Base Rate', 0))
@@ -312,9 +312,9 @@ with tab1:
                         except (ValueError, TypeError):
                             return 0.0
 
-                    edited_est['Total Price'] = edited_est.apply(calc_row_total, axis=1)
-                    edited_est['Unit Price'] = edited_est.apply(lambda row: row['Total Price'] / float(row.get('Qty', 0)) if float(row.get('Qty', 0)) != 0 else 0, axis=1)
-                    
+                    edited_est['Total Price'] = edited_est.apply(calc_total, axis=1)
+                    edited_est['Unit Price'] = edited_est['Total Price'] / edited_est['Qty'].replace(0, 1)
+
                     mat_sell = edited_est['Total Price'].sum()
                     daily_cost = float(gs.get('daily_labor_cost', 1000))
                     labor_actual_cost = float(s_days) * daily_cost
@@ -416,15 +416,15 @@ with tab3:
                     "Item": st.column_config.TextColumn("Item", width="large"),
                     "Unit": st.column_config.SelectboxColumn("Unit", options=["pcs", "m", "ft", "cm", "in"], width="small", required=True),
                     "Base Rate": st.column_config.NumberColumn("Base Rate", width="small"),
-                    "Unit Price": st.column_config.NumberColumn("Unit Price", width="small", disabled=True),
+                    "Unit Price": st.column_config.NumberColumn("Unit Price", format="₹%.2f", width="small", disabled=True),
                     "Total Price": st.column_config.NumberColumn("Total Price", width="small", disabled=True)
                 })
             
-            # --- Recalculation Logic ---
-            CONVERSIONS = {'pcs': 1.0, 'm': 1.0, 'cm': 0.01, 'ft': 0.3048, 'in': 0.0254}
+            # --- Universal Calculation Logic ---
+            CONVERSIONS = {'pcs': 1.0, 'each': 1.0, 'm': 1.0, 'cm': 0.01, 'ft': 0.3048, 'in': 0.0254}
             mm = 1 + (am.get('part_margin', 0)/100) + (am.get('labor_margin', 0)/100) + (am.get('extra_margin', 0)/100)
 
-            def calc_row_total(row):
+            def calc_total(row):
                 try:
                     qty = float(row.get('Qty', 0))
                     base = float(row.get('Base Rate', 0))
@@ -438,12 +438,13 @@ with tab3:
                 except (ValueError, TypeError):
                     return 0.0
 
-            edf['Total Price'] = edf.apply(calc_row_total, axis=1)
-            edf['Unit Price'] = edf.apply(lambda row: row['Total Price'] / float(row['Qty']) if float(row.get('Qty', 0)) != 0 else 0, axis=1)
+            edf['Total Price'] = edf.apply(calc_total, axis=1)
+            edf['Unit Price'] = edf['Total Price'] / edf['Qty'].replace(0, 1)
 
             mt = pd.to_numeric(edf["Total Price"]).sum()
             daily_cost = float(gs.get('daily_labor_cost', 1000))
             raw_lt = dys * daily_cost
+            
             total_base_cost = (pd.to_numeric(edf["Base Rate"]) * pd.to_numeric(edf["Qty"])).sum() + raw_lt
             raw_gt = mt + raw_lt
             rounded_gt = math.ceil(raw_gt / 100) * 100
