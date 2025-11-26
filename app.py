@@ -242,11 +242,20 @@ with tab1:
                         st.divider()
                         st.subheader("📄 Manage Estimate")
                         est_data = client['internal_estimate']
-                        s_items, s_days = est_data.get('items', []), est_data.get('days', 1.0)
+                        s_items_raw = est_data.get('items', [])
+                        s_days = float(est_data.get('days', 1.0)) # Directly cast s_days to float here
+
+                        # Sanitize s_items_raw to s_items (list of dicts with float Qty and Base Rate)
+                        s_items_sanitized = []
+                        for item in s_items_raw:
+                            sanitized_item = item.copy()
+                            sanitized_item['Qty'] = float(sanitized_item.get('Qty', 0))
+                            sanitized_item['Base Rate'] = float(sanitized_item.get('Base Rate', 0))
+                            s_items_sanitized.append(sanitized_item)
                         
                         ssk_dash = f"dash_est_{client['id']}"
                         if ssk_dash not in st.session_state:
-                            st.session_state[ssk_dash] = s_items
+                            st.session_state[ssk_dash] = s_items_sanitized # Initialize editor with sanitized items
     
                         if st.session_state[ssk_dash]:
                             idf = helpers.create_item_dataframe(st.session_state[ssk_dash])
@@ -278,7 +287,7 @@ with tab1:
                             # Call the centralized function for live editor metrics
                             calculated_results = helpers.calculate_estimate_details(
                                 edf_items_list=edited_est.to_dict(orient="records"),
-                                days=s_days,
+                                days=s_days, # Use sanitized s_days
                                 margins=am_for_calc,
                                 global_settings=gs
                             )
@@ -292,8 +301,8 @@ with tab1:
 
                             # Per user request for data consistency, re-calculate for "Advance Required" using original saved data
                             saved_data_results = helpers.calculate_estimate_details(
-                                edf_items_list=s_items,
-                                days=s_days,
+                                edf_items_list=s_items_sanitized, # Use sanitized s_items_sanitized
+                                days=s_days, # Use sanitized s_days
                                 margins=am_for_calc,
                                 global_settings=gs
                             )
@@ -452,6 +461,10 @@ with tab3:
                     "Total Price": st.column_config.NumberColumn("Total Price", format="₹%.2f", width="small", disabled=True)
                 })
             
+            # Enforce float types for calculation consistency early
+            edf['Qty'] = pd.to_numeric(edf['Qty'], errors='coerce').fillna(0).astype(float)
+            edf['Base Rate'] = pd.to_numeric(edf['Base Rate'], errors='coerce').fillna(0).astype(float)
+
             # --- Universal Calculation Logic ---
 
             mm = 1 + (am.get('part_margin', 0)/100) + (am.get('labor_margin', 0)/100) + (am.get('extra_margin', 0)/100)
