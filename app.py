@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 import time
 import pandas as pd
 import math
-from supabase.client import F
 
 
 from streamlit_js_eval import get_geolocation
@@ -719,9 +718,16 @@ with tab5:
                             res_purchase = None
 
                         if res_purchase and res_purchase.data:
-                            # Perform atomic stock increment
+                            # This is not atomic and can lead to race conditions.
+                            # A better solution would be to use a PostgreSQL function.
                             try:
-                                res_stock_update = supabase.table("inventory").update({"stock_quantity": F("stock_quantity") + purchase_qty}).eq("item_name", selected_item_name).execute()
+                                current_inv_item = supabase.table("inventory").select("stock_quantity").eq("item_name", selected_item_name).execute()
+                                if current_inv_item and current_inv_item.data:
+                                    current_stock = current_inv_item.data[0].get('stock_quantity', 0)
+                                    new_stock = current_stock + purchase_qty
+                                    res_stock_update = supabase.table("inventory").update({"stock_quantity": new_stock}).eq("item_name", selected_item_name).execute()
+                                else:
+                                    res_stock_update = None # Indicate failure to fetch current stock
                             except Exception as e:
                                 st.error(f"Database Error: {e}")
                                 res_stock_update = None
