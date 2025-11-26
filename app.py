@@ -715,7 +715,7 @@ with tab5:
             # Pre-fill rate with current base_rate from inventory if available
             default_rate = inventory_options.get(selected_item_name, {}).get('base_rate', 0.0)
             purchase_rate = st.number_input("Buying Rate", min_value=0.0, value=float(default_rate), step=0.01)
-            purchase_qty = st.number_input("Quantity", min_value=0.0, value=1.0, step=0.01)
+            purchase_qty = st.number_input("Quantity", min_value=0.0, value=1.0, step=1.0, format="%.2f")
             update_inventory_base_rate = st.checkbox("Update Inventory Base Rate?", value=True)
 
             if st.button("✅ Record Transaction", type="primary"):
