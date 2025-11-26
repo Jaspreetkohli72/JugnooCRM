@@ -272,13 +272,13 @@ with tab1:
                 
                 if s_items:
                     idf = pd.DataFrame(s_items)
+                    # Ensure all required columns exist
                     for col in ["Qty", "Item", "Unit", "Base Rate", "Total Price"]:
                         if col not in idf.columns: idf[col] = "" if col in ["Item", "Unit"] else 0.0
                     
-                    idf["Unit Price"] = idf.apply(lambda row: pd.to_numeric(row['Total Price']) / pd.to_numeric(row['Qty']) if pd.to_numeric(row['Qty']) != 0 else 0, axis=1)
-                    
                     column_order = ['Qty', 'Item', 'Unit', 'Base Rate', 'Unit Price', 'Total Price']
-                    idf = idf[column_order]
+                    idf['Unit Price'] = idf.apply(lambda row: pd.to_numeric(row['Total Price']) / pd.to_numeric(row['Qty']) if pd.to_numeric(row['Qty']) != 0 else 0, axis=1)
+                    idf = idf.reindex(columns=column_order, fill_value="")
 
                     edited_est = st.data_editor(idf, num_rows="dynamic", use_container_width=True, key=f"de_{client['id']}",
                                                 column_config={
@@ -289,14 +289,36 @@ with tab1:
                                                     "Unit Price": st.column_config.NumberColumn("Unit Price", width="small", disabled=True),
                                                     "Total Price": st.column_config.NumberColumn("Total Price", width="small", disabled=True)
                                                 })
-                    
-                    edited_est["Total Price"] = pd.to_numeric(edited_est["Unit Price"]) * pd.to_numeric(edited_est['Qty'])
-                    
+
+                    # --- Recalculation Logic ---
+                    s_margins = est_data.get('margins')
                     gs = get_settings()
+                    am = s_margins if s_margins else gs
+
+                    CONVERSIONS = {'pcs': 1.0, 'm': 1.0, 'cm': 0.01, 'ft': 0.3048, 'in': 0.0254}
+                    mm = 1 + (am.get('part_margin', 0)/100) + (am.get('labor_margin', 0)/100) + (am.get('extra_margin', 0)/100)
+
+                    def calc_row_total(row):
+                        try:
+                            qty = float(row.get('Qty', 0))
+                            base = float(row.get('Base Rate', 0))
+                            unit = row.get('Unit', 'pcs')
+                            factor = CONVERSIONS.get(unit, 1.0)
+                            
+                            if unit in ['m', 'cm', 'ft', 'in']:
+                                return base * (qty * factor) * mm
+                            else:
+                                return base * qty * mm
+                        except (ValueError, TypeError):
+                            return 0.0
+
+                    edited_est['Total Price'] = edited_est.apply(calc_row_total, axis=1)
+                    edited_est['Unit Price'] = edited_est.apply(lambda row: row['Total Price'] / float(row.get('Qty', 0)) if float(row.get('Qty', 0)) != 0 else 0, axis=1)
+                    
                     mat_sell = edited_est['Total Price'].sum()
                     daily_cost = float(gs.get('daily_labor_cost', 1000))
                     labor_actual_cost = float(s_days) * daily_cost
-                    total_base_cost = (pd.to_numeric(edited_est['Base Rate']) * pd.to_numeric(edited_est['Qty'])).sum() + labor_actual_cost
+                    total_base_cost = (pd.to_numeric(edited_est['Base Rate'].fillna(0)) * pd.to_numeric(edited_est['Qty'].fillna(0))).sum() + labor_actual_cost
                     raw_grand_total = mat_sell + labor_actual_cost
                     rounded_grand_total = math.ceil(raw_grand_total / 100) * 100
                     total_profit = rounded_grand_total - total_base_cost
@@ -385,7 +407,7 @@ with tab3:
                 if col not in df.columns: df[col] = "" if col in ["Item", "Unit"] else 0.0
             
             column_order = ['Qty', 'Item', 'Unit', 'Base Rate', 'Unit Price', 'Total Price']
-            df = df[column_order]
+            df = df.reindex(columns=column_order, fill_value="")
 
             st.write("#### Items")
             edf = st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"t_{tc['id']}", 
@@ -398,9 +420,26 @@ with tab3:
                     "Total Price": st.column_config.NumberColumn("Total Price", width="small", disabled=True)
                 })
             
-            mm = 1 + (am['part_margin']/100) + (am['labor_margin']/100) + (am['extra_margin']/100)
-            edf["Unit Price"] = pd.to_numeric(edf["Base Rate"]) * mm
-            edf["Total Price"] = pd.to_numeric(edf["Unit Price"]) * pd.to_numeric(edf["Qty"])
+            # --- Recalculation Logic ---
+            CONVERSIONS = {'pcs': 1.0, 'm': 1.0, 'cm': 0.01, 'ft': 0.3048, 'in': 0.0254}
+            mm = 1 + (am.get('part_margin', 0)/100) + (am.get('labor_margin', 0)/100) + (am.get('extra_margin', 0)/100)
+
+            def calc_row_total(row):
+                try:
+                    qty = float(row.get('Qty', 0))
+                    base = float(row.get('Base Rate', 0))
+                    unit = row.get('Unit', 'pcs')
+                    factor = CONVERSIONS.get(unit, 1.0)
+                    
+                    if unit in ['m', 'cm', 'ft', 'in']:
+                        return base * (qty * factor) * mm
+                    else:
+                        return base * qty * mm
+                except (ValueError, TypeError):
+                    return 0.0
+
+            edf['Total Price'] = edf.apply(calc_row_total, axis=1)
+            edf['Unit Price'] = edf.apply(lambda row: row['Total Price'] / float(row['Qty']) if float(row.get('Qty', 0)) != 0 else 0, axis=1)
 
             mt = pd.to_numeric(edf["Total Price"]).sum()
             daily_cost = float(gs.get('daily_labor_cost', 1000))
