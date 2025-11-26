@@ -388,7 +388,7 @@ with tab3:
             mc1, mc2, mc3 = st.columns(3)
             cp, cl, ce = mc1.slider("Part %", 0, 100, dp, key="cp"), mc2.slider("Labor %", 0, 100, dl, key="cl"), mc3.slider("Extra %", 0, 100, de, key="ce")
             am = {'part_margin': cp, 'labor_margin': cl, 'extra_margin': ce}
-        dys = st.slider("⏳ Days", 0.5, 30.0, float(sd), 0.5)
+        dys = st.number_input("⏳ Days", min_value=1, step=1, value=int(sd))
 
         st.divider()
         inv = run_query(supabase.table("inventory").select("*"))
