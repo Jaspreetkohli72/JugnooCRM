@@ -924,7 +924,7 @@ with tab6:
 
     with st.spinner("Loading P&L Data..."):
         try:
-            clients_response = supabase.table("clients").select("status, internal_estimate").execute()
+            clients_response = supabase.table("clients").select("*").execute()
             purchase_log_response = supabase.table("purchase_log").select("total_cost").execute()
             settings = get_settings()
         except Exception as e:
@@ -933,21 +933,25 @@ with tab6:
             purchase_log_response = None
             settings = None
 
-    if not (clients_response and clients_response.data and purchase_log_response and settings):
-        st.warning("Unable to load P&L data. Please check database connection and ensure you have completed projects.")
+    if not clients_response or not clients_response.data:
+        st.warning("No client data found.")
         st.stop()
 
     try:
         all_clients = clients_response.data
-        purchase_log_data = purchase_log_response.data if purchase_log_response.data else []
+        purchase_log_data = purchase_log_response.data if purchase_log_response and purchase_log_response.data else []
         daily_labor_cost = float(settings.get('daily_labor_cost', 1000.0))
 
         total_revenue = 0.0
         total_labor_expense = 0.0
+        total_profit_estimated = 0.0
+        total_payment_received = 0.0
+        completed_projects = 0
         
-        # --- Calculate Revenue and Total Labor Expense ---
+        # --- Calculate Metrics ---
         for client in all_clients:
             estimate = client.get('internal_estimate')
+            
             if not estimate:
                 continue
                 
@@ -958,6 +962,10 @@ with tab6:
                 total_labor_expense += client_labor_cost
                 items = estimate.get('items', [])
                 
+                if not items:
+                    continue
+                
+                completed_projects += 1
                 material_sell_price_for_client = 0.0
                 for item in items:
                     try:
@@ -981,67 +989,89 @@ with tab6:
                 client_raw_grand_total = material_sell_price_for_client + client_labor_cost
                 client_rounded_grand_total = math.ceil(client_raw_grand_total / 100) * 100
                 total_revenue += client_rounded_grand_total
+                
+                # NEW: Calculate estimated profit
+                total_material_base_cost = sum(float(item.get('Base Rate', 0)) * float(item.get('Qty', 0)) for item in items)
+                total_base_cost = total_material_base_cost + client_labor_cost
+                total_profit_estimated += (client_rounded_grand_total - total_base_cost)
+                
+                # NEW: Get actual payment received
+                actual_payment = float(client.get('amount_received', client_rounded_grand_total))
+                total_payment_received += actual_payment
 
         total_material_expense = float(sum(float(log.get('total_cost', 0.0)) for log in purchase_log_data if log.get('total_cost')))
         total_expenses = total_labor_expense + total_material_expense
-        net_profit = total_revenue - total_expenses
-        net_profit_margin_percent = (net_profit / total_revenue * 100) if total_revenue != 0 else 0
-
-        # --- Display KPIs ---
-        st.write("#### Key Financial Metrics")
-        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-        kpi1.metric("Total Revenue", f"₹{total_revenue:,.0f}")
-        kpi2.metric("Material Expenses", f"₹{total_material_expense:,.0f}")
-        kpi3.metric("Labor Expenses", f"₹{total_labor_expense:,.0f}")
-        kpi4.metric("Net Profit", f"₹{net_profit:,.0f}", delta=f"{net_profit_margin_percent:,.1f}% Margin")
+        net_profit_estimated = total_revenue - total_expenses
+        actual_profit = total_payment_received - total_expenses
+        actual_margin_pct = (actual_profit / total_payment_received * 100) if total_payment_received != 0 else 0
 
         st.divider()
-        st.write("#### Financial Overview")
+        
+        # === KPI #1: Key Metrics Overview ===
+        st.write("#### 📊 Key Business Metrics")
+        kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
+        kpi_col1.metric("Completed Projects", completed_projects)
+        kpi_col2.metric("Total Revenue (Grand Total)", f"₹{total_revenue:,.0f}")
+        kpi_col3.metric("Actual Payment Received", f"₹{total_payment_received:,.0f}", delta=f"₹{total_payment_received - total_revenue:,.0f}")
+        kpi_col4.metric("Total Expenses", f"₹{total_expenses:,.0f}")
+
+        # === KPI #2: Profit Metrics ===
+        st.divider()
+        st.write("#### 💰 Profit Analysis")
+        profit_col1, profit_col2, profit_col3, profit_col4 = st.columns(4)
+        profit_col1.metric("Estimated Profit", f"₹{net_profit_estimated:,.0f}")
+        profit_col2.metric("Actual Profit (After Discounts)", f"₹{actual_profit:,.0f}", delta=f"₹{actual_profit - net_profit_estimated:,.0f}")
+        profit_col3.metric("Margin %", f"{actual_margin_pct:.1f}%")
+        profit_col4.metric("Discount Loss", f"₹{total_revenue - total_payment_received:,.0f}")
+
+        # === KPI #3: Expense Breakdown ===
+        st.divider()
+        st.write("#### 📈 Expense Breakdown")
+        expense_col1, expense_col2, expense_col3 = st.columns(3)
+        material_pct = (total_material_expense / total_expenses * 100) if total_expenses != 0 else 0
+        labor_pct = (total_labor_expense / total_expenses * 100) if total_expenses != 0 else 0
+        expense_col1.metric("Material Expenses", f"₹{total_material_expense:,.0f}", delta=f"{material_pct:.1f}%")
+        expense_col2.metric("Labor Expenses", f"₹{total_labor_expense:,.0f}", delta=f"{labor_pct:.1f}%")
+        expense_col3.metric("Avg Cost per Project", f"₹{total_expenses / completed_projects:,.0f}" if completed_projects > 0 else "N/A")
+
+        st.divider()
+        st.write("#### 📊 Financial Overview")
         chart_col1, chart_col2 = st.columns(2)
 
+        # === GRAPH #1: Revenue vs Expenses vs Actual Payment ===
         with chart_col1:
-            st.subheader("Revenue vs Expenses")
-            # FIX: Ensure all values are proper floats, not numpy types
-            chart_data_bar = pd.DataFrame({
-                'Category': ['Revenue', 'Material Expense', 'Labor Expense'],
-                'Amount': [float(total_revenue), float(total_material_expense), float(total_labor_expense)]
+            st.subheader("Revenue vs Expenses vs Payment")
+            chart_data_comparison = pd.DataFrame({
+                'Category': ['Grand Total', 'Actual Payment', 'Total Expenses'],
+                'Amount': [float(total_revenue), float(total_payment_received), float(total_expenses)]
             })
+            chart_data_comparison['Amount'] = chart_data_comparison['Amount'].astype(float)
             
-            # Convert Amount column to float to ensure compatibility
-            chart_data_bar['Amount'] = chart_data_bar['Amount'].astype(float)
-            
-            bar_chart = alt.Chart(chart_data_bar).mark_bar().encode(
+            comparison_chart = alt.Chart(chart_data_comparison).mark_bar().encode(
                 x=alt.X('Category:N', axis=alt.Axis(title=None, labelAngle=0)),
                 y=alt.Y('Amount:Q', axis=alt.Axis(title="Amount (₹)", format='.0f')),
                 color=alt.Color('Category:N', 
                     scale=alt.Scale(
-                        domain=['Revenue', 'Material Expense', 'Labor Expense'],
-                        range=['#2ecc71', '#e74c3c', '#f1c40f']
+                        domain=['Grand Total', 'Actual Payment', 'Total Expenses'],
+                        range=['#3498db', '#2ecc71', '#e74c3c']
                     ),
                     legend=None),
                 tooltip=[
                     alt.Tooltip('Category:N', title='Category'),
                     alt.Tooltip('Amount:Q', format=',.0f', title='Amount (₹)')
                 ]
-            ).properties(
-                title='Total Revenue vs Expenses', 
-                height=400,
-                width=500
-            )
+            ).properties(title='Revenue, Payment & Expenses Comparison', height=400, width=500)
             
-            st.altair_chart(bar_chart, use_container_width=True)
+            st.altair_chart(comparison_chart, use_container_width=True)
 
+        # === GRAPH #2: Cost Split (Material vs Labor) ===
         with chart_col2:
-            st.subheader("Cost Split")
-            total_cost_combined = float(total_material_expense) + float(total_labor_expense)
-            
-            if total_cost_combined > 0:
+            st.subheader("Cost Split Analysis")
+            if total_expenses > 0:
                 chart_data_pie = pd.DataFrame({
                     'Cost Type': ['Material Cost', 'Labor Cost'],
                     'Amount': [float(total_material_expense), float(total_labor_expense)]
                 })
-                
-                # Convert Amount column to float to ensure compatibility
                 chart_data_pie['Amount'] = chart_data_pie['Amount'].astype(float)
                 
                 pie_chart = alt.Chart(chart_data_pie).mark_arc(innerRadius=50, cornerRadius=5).encode(
@@ -1058,15 +1088,68 @@ with tab6:
                         alt.Tooltip('Amount:Q', format=',.0f', title='Amount (₹)'),
                         alt.Tooltip('Amount:Q', format='.1%', title='Percentage')
                     ]
-                ).properties(
-                    title='Material vs Labor Cost Split', 
-                    height=400,
-                    width=500
-                )
+                ).properties(title='Material vs Labor Cost Split', height=400, width=500)
                 
                 st.altair_chart(pie_chart, use_container_width=True)
             else:
-                st.info("No material or labor costs to display. Complete some projects first.")
+                st.info("No costs recorded yet.")
+
+        st.divider()
+        st.write("#### 📊 Additional Analytics")
+        analytics_col1, analytics_col2 = st.columns(2)
+
+        # === GRAPH #3: Profit vs Discount Impact ===
+        with analytics_col1:
+            st.subheader("Estimated vs Actual Profit")
+            chart_data_profit = pd.DataFrame({
+                'Status': ['Estimated Profit', 'Actual Profit'],
+                'Amount': [float(net_profit_estimated), float(actual_profit)]
+            })
+            chart_data_profit['Amount'] = chart_data_profit['Amount'].astype(float)
+            
+            profit_chart = alt.Chart(chart_data_profit).mark_bar().encode(
+                x=alt.X('Status:N', axis=alt.Axis(title=None, labelAngle=0)),
+                y=alt.Y('Amount:Q', axis=alt.Axis(title="Profit (₹)", format='.0f')),
+                color=alt.Color('Status:N', 
+                    scale=alt.Scale(
+                        domain=['Estimated Profit', 'Actual Profit'],
+                        range=['#2ecc71', '#3498db']
+                    ),
+                    legend=None),
+                tooltip=[
+                    alt.Tooltip('Status:N', title='Type'),
+                    alt.Tooltip('Amount:Q', format=',.0f', title='Amount (₹)')
+                ]
+            ).properties(title='Estimated vs Actual Profit', height=400, width=500)
+            
+            st.altair_chart(profit_chart, use_container_width=True)
+
+        # === GRAPH #4: Margin Trend ===
+        with analytics_col2:
+            st.subheader("Business Health Summary")
+            
+            health_data = {
+                "Metric": [
+                    "Revenue Capture Rate",
+                    "Profit Margin",
+                    "Cost Efficiency",
+                    "Labor Cost %"
+                ],
+                "Value": [
+                    f"{(total_payment_received / total_revenue * 100) if total_revenue > 0 else 0:.1f}%",
+                    f"{actual_margin_pct:.1f}%",
+                    f"{(total_expenses / total_revenue * 100) if total_expenses > 0 else 0:.1f}%",
+                    f"{(total_labor_expense / total_expenses * 100) if total_expenses > 0 else 0:.1f}%"
+                ]
+            }
+            
+            health_df = pd.DataFrame(health_data)
+            st.dataframe(health_df, use_container_width=True, hide_index=True)
+            
+            st.write("**Interpretation:**")
+            st.text(f"✓ You capture {(total_payment_received / total_revenue * 100) if total_revenue > 0 else 0:.1f}% of quoted amount")
+            st.text(f"✓ Operating margin: {actual_margin_pct:.1f}%")
+            st.text(f"✓ {completed_projects} projects completed")
 
     except Exception as e:
         st.error(f"Error during P&L calculation: {e}")
