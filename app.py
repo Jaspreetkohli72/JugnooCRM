@@ -68,45 +68,15 @@ cookie_manager = get_manager()
 
 def check_login(username, password):
     try:
-        res = supabase.table("users").select("password").eq("username", username).execute()
+        res = supabase.table("users").select("username").eq("username", username).eq("password", password).execute()
         if res and res.data:
-            hashed_password = res.data[0]['password']
-            return auth.verify_password(password, hashed_password)
+            return True
         return False
     except Exception as e:
         st.error(f"Database Error: {e}")
         return False
 
-def recovery_section(back_to_login):
-    st.title("🔑 Password Recovery")
-    st.info("Enter your Username, Recovery Key, and a New Password.")
 
-    with st.form("recovery_form"):
-        user = st.text_input("Username")
-        key = st.text_input("Recovery Key")
-        new_pwd = st.text_input("New Password", type="password")
-        
-        c1, c2 = st.columns(2)
-        if c1.form_submit_button("Update Password", type="primary"):
-            if not user or not key or not new_pwd:
-                st.error("All fields are required.")
-            else:
-                try:
-                    # Pass the supabase object to the auth function
-                    if auth.update_password_with_recovery_key(supabase, user, key, new_pwd):
-                        st.success("Password updated successfully! Please log in now.")
-                        # Clear the recovery key in the UI session state after success
-                        st.session_state.show_recovery = False
-                        st.rerun()
-                    else:
-                        st.error("Verification failed. Invalid Username or Recovery Key.")
-                except Exception as e:
-                    st.error(f"Recovery Database Error: {e}")
-        
-        # Add a back button
-        if c2.form_submit_button("Back to Login", type="secondary"):
-            back_to_login()
-    st.stop()
 
 
 def login_section():
@@ -118,11 +88,6 @@ def login_section():
         st.session_state.username = cookie_user
         return 
         if st.session_state.get('logged_in'): return
-
-    # Check for recovery mode state
-    if st.session_state.get('show_recovery'):
-        recovery_section(back_to_login=lambda: st.session_state.update(show_recovery=False))
-        return
 
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
@@ -139,11 +104,7 @@ def login_section():
                     st.success("Success! Reloading...")
                     st.cache_resource.clear()
                     st.rerun()
-            
-    # Add the Forgot Password link below the form (outside the form)
-    if st.button("Forgot Password?", key="forgot_pwd_btn", type="secondary"):
-        st.session_state.show_recovery = True
-        st.rerun()
+
 st.stop()
 
 login_section()
