@@ -34,6 +34,7 @@ st.markdown("""
     [data-testid="stSidebar"] {
         background-color: #0e1117;
     }
+    html, body { background-color: #0E1117; } /* Fix for mobile bezels */
     #MainMenu { visibility: hidden; }
     footer { visibility: hidden; }
     [data-testid="stMetric"] {
@@ -45,6 +46,8 @@ st.markdown("""
     }
     [data-testid="stMetricLabel"] { color: #b4b4b4; }
     </style>
+    <!-- Fix for mobile safe areas -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     """, unsafe_allow_html=True)
 
 @st.cache_resource(ttl="1h")
