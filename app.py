@@ -68,9 +68,10 @@ cookie_manager = get_manager()
 
 def check_login(username, password):
     try:
-        res = supabase.table("users").select("username").eq("username", username).eq("password", password).execute()
+        res = supabase.table("users").select("username, password").eq("username", username).execute()
         if res and res.data:
-            return True
+            stored_password = res.data[0]['password']
+            return stored_password == password  # Plain text comparison
         return False
     except Exception as e:
         st.error(f"Database Error: {e}")
@@ -82,12 +83,17 @@ def check_login(username, password):
 def login_section():
     st.title("🔒 Jugnoo")
     time.sleep(0.1)
+    
+    # Check if user already logged in via cookie
     cookie_user = cookie_manager.get(cookie="jugnoo_user")
     if cookie_user:
         st.session_state.logged_in = True
         st.session_state.username = cookie_user
-        return 
-        if st.session_state.get('logged_in'): return
+        return  # Exit here, don't show login UI
+    
+    # If already logged in (from this session), don't show form
+    if st.session_state.get('logged_in'):
+        return
 
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
@@ -104,6 +110,8 @@ def login_section():
                     st.success("Success! Reloading...")
                     st.cache_resource.clear()
                     st.rerun()
+                else:
+                    st.error("Invalid credentials!")
 
 st.stop()
 
@@ -201,7 +209,7 @@ with tab1:
                         if loc:
                             st.write(f"Detected: {loc['coords']['latitude']}, {loc['coords']['longitude']}")
                             if st.button("Paste Location", key=f"paste_loc_tab1_{client['id']}"):
-                                gmaps = f"http://googleusercontent.com/maps.google.com/?q={loc['coords']['latitude']},{loc['coords']['longitude']}"
+                                gmaps = f"https://www.google.com/maps/search/{loc['coords']['latitude']},{loc['coords']['longitude']}"
                                 st.session_state[f"loc_in_dash_{client['id']}"] = gmaps
                         
                         with st.form("edit_details"):
@@ -368,7 +376,7 @@ with tab2:
     if loc_new_client:
         st.write(f"Detected: {loc_new_client['coords']['latitude']}, {loc_new_client['coords']['longitude']}")
         if st.button("Paste Location to Form", key="paste_loc_tab2_new_client"):
-            gmaps_new_client = f"http://googleusercontent.com/maps.google.com/?q={loc_new_client['coords']['latitude']},{loc_new_client['coords']['longitude']}"
+            gmaps_new_client = f"https://www.google.com/maps/search/{loc_new_client['coords']['latitude']},{loc_new_client['coords']['longitude']}"
             st.session_state["loc_in_new_client"] = gmaps_new_client
     
     with st.form("new_client"):
@@ -633,15 +641,12 @@ with tab4:
         op = st.text_input("Old Password", type="password")
         np = st.text_input("New Password", type="password")
         if st.form_submit_button("Update Password"):
-            # First, check if the old password is correct
             try:
                 res = supabase.table("users").select("password").eq("username", st.session_state.username).execute()
                 if res and res.data:
                     current_password = res.data[0]['password']
-                    if auth.verify_password(op, current_password):
-                        # If old password is correct, update to new password
-                        new_hashed_password = auth.hash_password(np)
-                        supabase.table("users").update({"password": new_hashed_password}).eq("username", st.session_state.username).execute()
+                    if op == current_password:  # Plain text comparison
+                        supabase.table("users").update({"password": np}).eq("username", st.session_state.username).execute()
                         st.success("Password updated successfully!")
                     else:
                         st.error("Incorrect old password.")
@@ -846,7 +851,7 @@ with tab6:
 
     try:
         if clients_response and clients_response.data and purchase_log_response and purchase_log_response.data and settings:
-            all_clients = clients.response.data
+            all_clients = clients_response.data
             purchase_log_data = purchase_log_response.data
             daily_labor_cost = float(settings.get('daily_labor_cost', 1000.0))
 
