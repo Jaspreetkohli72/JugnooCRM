@@ -139,15 +139,12 @@ def login_section():
                     st.success("Success! Reloading...")
                     st.cache_resource.clear()
                     st.rerun()
-                else:
-                    st.error("Invalid Credentials")
             
-            # Add the Forgot Password link below the form
-            st.markdown("[Forgot Password?](javascript:void(0))", unsafe_allow_html=True)
-            if st.button("Forgot Password?", key="forgot_pwd_btn", type="secondary"):
-                st.session_state.show_recovery = True
-                st.rerun()
-    st.stop()
+    # Add the Forgot Password link below the form (outside the form)
+    if st.button("Forgot Password?", key="forgot_pwd_btn", type="secondary"):
+        st.session_state.show_recovery = True
+        st.rerun()
+st.stop()
 
 login_section()
 
