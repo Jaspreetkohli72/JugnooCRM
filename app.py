@@ -8,7 +8,6 @@ import time
 import pandas as pd
 import math
 
-
 from streamlit_js_eval import get_geolocation
 import altair as alt
 import extra_streamlit_components as stx
@@ -34,7 +33,11 @@ st.markdown("""
     [data-testid="stSidebar"] {
         background-color: #0e1117;
     }
-    html, body { background-color: #0E1117; } /* Fix for mobile bezels */
+    html, body {
+        background-color: #0E1117;
+        height: 100%;
+        margin: 0;
+    }
     #MainMenu { visibility: hidden; }
     footer { visibility: hidden; }
     [data-testid="stMetric"] {
@@ -46,8 +49,11 @@ st.markdown("""
     }
     [data-testid="stMetricLabel"] { color: #b4b4b4; }
     </style>
-    <!-- Fix for mobile safe areas -->
+    <!-- Fix for mobile safe areas and browser chrome -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0E1117">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-capable" content="yes">
     """, unsafe_allow_html=True)
 
 @st.cache_resource(ttl="1h")
