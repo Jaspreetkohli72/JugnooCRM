@@ -404,19 +404,6 @@ with tab1:
                                 df_profit['Base Rate'] = df_profit['Base Rate'].round(2)
                                 df_profit['Total Sell Price'] = df_profit['Total Sell Price'].round(2)
                                 df_profit['Row Profit'] = df_profit['Row Profit'].round(2)
-    
-                                st.dataframe(df_profit[['Item', 'Qty', 'Unit', 'Base Rate', 'Total Sell Price', 'Row Profit']], use_container_width=True, hide_index=True)
-                                st.metric("Net Profit (from Grand Total)", f"₹{total_profit:,.0f}")
-                            else: 
-                                st.info("Mark status as 'Work Done' to view Internal Profit Analysis.")
-    
-                        else: st.warning("Estimate Empty")
-            # --- TAB 2: NEW CLIENT ---
-with tab2:
-    st.subheader("Add New Client")
-    
-    loc_new_client = get_geolocation(component_key="geo_tab2_new_client")
-    gmaps_new_client = ""
     if loc_new_client:
         st.write(f"Detected: {loc_new_client['coords']['latitude']}, {loc_new_client['coords']['longitude']}")
         if st.button("Paste Location to Form", key="paste_loc_tab2_new_client"):
