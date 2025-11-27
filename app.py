@@ -319,10 +319,13 @@ with tab1:
                             edited_est_with_prices = calculated_results["edf_details_df"]
 
                             # Per user request for data consistency, re-calculate for "Advance Required" using original saved data
+                            # CRITICAL FIX: Normalize margins using helper function for consistency
+                            am_normalized = helpers.normalize_margins(est_data.get('margins'), gs)
+
                             saved_data_results = helpers.calculate_estimate_details(
                                 edf_items_list=s_items_sanitized, # Use sanitized s_items_sanitized
                                 days=s_days, # Use sanitized s_days
-                                margins=am_for_calc,
+                                margins=am_normalized,
                                 global_settings=gs
                             )
                             advance_amount = saved_data_results["advance_amount"]
@@ -486,24 +489,28 @@ with tab3:
 
             # --- Universal Calculation Logic ---
 
-            mm = 1 + (am.get('part_margin', 0)/100) + (am.get('labor_margin', 0)/100) + (am.get('extra_margin', 0)/100)
+            # --- Universal Calculation Logic ---
+            # Use centralized helper function for consistency
+            gs = get_settings()
+            am_for_calc = am  # Use the margins already set above
 
-            def calc_total(row):
-                try:
-                    qty = float(row.get('Qty', 0))
-                    base = float(row.get('Base Rate', 0))
-                    unit = row.get('Unit', 'pcs')
-                    factor = helpers.CONVERSIONS.get(unit, 1.0)
-                    
-                    if unit in ['m', 'cm', 'ft', 'in']:
-                        return base * (qty * factor) * mm
-                    else:
-                        return base * qty * mm
-                except (ValueError, TypeError):
-                    return 0.0
+            calculated_results = helpers.calculate_estimate_details(
+                edf_items_list=edf.to_dict(orient="records"),
+                days=dys,
+                margins=am_for_calc,
+                global_settings=gs
+            )
 
-            edf['Total Price'] = edf.apply(calc_total, axis=1)
-            edf['Unit Price'] = edf['Total Price'] / edf['Qty'].replace(0, 1)
+            edf['Total Price'] = edf.apply(lambda row: calculated_results["edf_details_df"].loc[row.name, 'Total Price'] if row.name in calculated_results["edf_details_df"].index else 0, axis=1)
+            edf['Unit Price'] = edf.apply(lambda row: calculated_results["edf_details_df"].loc[row.name, 'Unit Price'] if row.name in calculated_results["edf_details_df"].index else 0, axis=1)
+
+            mt = calculated_results["mat_sell"]
+            daily_cost = float(gs.get('daily_labor_cost', 1000))
+            raw_lt = calculated_results["labor_actual_cost"]
+            rounded_gt = calculated_results["rounded_grand_total"]
+            total_profit = calculated_results["total_profit"]
+            advance_amount = calculated_results["advance_amount"]
+            disp_lt = calculated_results["disp_lt"]
 
             # Sync logic
             if edf.to_dict(orient="records") != st.session_state[ssk]:
@@ -847,123 +854,128 @@ with tab6:
             purchase_log_response = supabase.table("purchase_log").select("total_cost").execute()
             settings = get_settings()
         except Exception as e:
-            st.error(f"An error occurred during data fetching: {e}")
+            st.error(f"Database Error during data fetch: {e}")
             clients_response = None
             purchase_log_response = None
             settings = None
 
+    if not (clients_response and clients_response.data and purchase_log_response and settings):
+        st.warning("Unable to load P&L data. Please check database connection and ensure you have completed projects.")
+        st.stop()
+
     try:
-        if clients_response and clients_response.data and purchase_log_response and purchase_log_response.data and settings:
-            all_clients = clients_response.data
-            purchase_log_data = purchase_log_response.data
-            daily_labor_cost = float(settings.get('daily_labor_cost', 1000.0))
+        all_clients = clients_response.data
+        purchase_log_data = purchase_log_response.data if purchase_log_response.data else []
+        daily_labor_cost = float(settings.get('daily_labor_cost', 1000.0))
 
-            total_revenue = 0.0
-            total_labor_expense = 0.0
+        total_revenue = 0.0
+        total_labor_expense = 0.0
+        
+        # --- Calculate Revenue and Total Labor Expense ---
+        for client in all_clients:
+            estimate = client.get('internal_estimate')
+            if not estimate:
+                continue
+                
+            labor_days = float(estimate.get('days', 0.0))
+            client_labor_cost = labor_days * daily_labor_cost
             
-            # --- Calculate Revenue and Total Labor Expense ---
-            for client in all_clients:
-                estimate = client.get('internal_estimate')
-                if estimate:
-                    labor_days = float(estimate.get('days', 0.0))
-                    client_labor_cost = labor_days * daily_labor_cost
-                    if client.get('status') in ["Work Done", "Closed"]:
-                        total_labor_expense += client_labor_cost
-
-                    if client.get('status') in ["Work Done", "Closed"]:
-                        items = estimate.get('items', [])
+            if client.get('status') in ["Work Done", "Closed"]:
+                total_labor_expense += client_labor_cost
+                items = estimate.get('items', [])
+                
+                material_sell_price_for_client = 0.0
+                for item in items:
+                    try:
+                        qty = float(item.get('Qty', 0))
+                        base_rate = float(item.get('Base Rate', 0))
+                        unit = item.get('Unit', 'pcs')
                         
-                        material_sell_price_for_client = 0.0
-                        for item in items:
-                            try:
-                                qty = float(item.get('Qty', 0))
-                                base_rate = float(item.get('Base Rate', 0))
-                                unit = item.get('Unit', 'pcs')
-                                client_margins = estimate.get('margins')
-                                am_for_client = client_margins if client_margins else settings
-                                
-                                if client_margins and 'p' in client_margins:
-                                    am_for_client = {
-                                        'part_margin': client_margins.get('p', 0),
-                                        'labor_margin': client_margins.get('l', 0),
-                                        'extra_margin': client_margins.get('e', 0)
-                                    }
+                        client_margins = estimate.get('margins')
+                        am_for_client = helpers.normalize_margins(client_margins, settings)
+                        
+                        mm_for_client = 1 + (am_for_client.get('part_margin', 0)/100) + (am_for_client.get('labor_margin', 0)/100) + (am_for_client.get('extra_margin', 0)/100)
+                        
+                        factor = helpers.CONVERSIONS.get(unit, 1.0)
+                        if unit in ['m', 'cm', 'ft', 'in']:
+                            material_sell_price_for_client += base_rate * (qty * factor) * mm_for_client
+                        else:
+                            material_sell_price_for_client += base_rate * qty * mm_for_client
+                    except (ValueError, TypeError):
+                        continue
 
-                                mm_for_client = 1 + (am_for_client.get('part_margin', 0)/100) + (am_for_client.get('labor_margin', 0)/100) + (am_for_client.get('extra_margin', 0)/100)
+                client_raw_grand_total = material_sell_price_for_client + client_labor_cost
+                client_rounded_grand_total = math.ceil(client_raw_grand_total / 100) * 100
+                total_revenue += client_rounded_grand_total
 
-                                factor = helpers.CONVERSIONS.get(unit, 1.0)
-                                if unit in ['m', 'cm', 'ft', 'in']:
-                                    material_sell_price_for_client += base_rate * (qty * factor) * mm_for_client
-                                else:
-                                    material_sell_price_for_client += base_rate * qty * mm_for_client
-                            except (ValueError, TypeError):
-                                pass
+        total_material_expense = float(sum(float(log.get('total_cost', 0.0)) for log in purchase_log_data if log.get('total_cost')))
+        total_expenses = total_labor_expense + total_material_expense
+        net_profit = total_revenue - total_expenses
+        net_profit_margin_percent = (net_profit / total_revenue * 100) if total_revenue != 0 else 0
 
-                        client_raw_grand_total = material_sell_price_for_client + client_labor_cost
-                        client_rounded_grand_total = math.ceil(client_raw_grand_total / 100) * 100
-                        total_revenue += client_rounded_grand_total
+        # --- Display KPIs ---
+        st.write("#### Key Financial Metrics")
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        kpi1.metric("Total Revenue", f"₹{total_revenue:,.0f}")
+        kpi2.metric("Material Expenses", f"₹{total_material_expense:,.0f}")
+        kpi3.metric("Labor Expenses", f"₹{total_labor_expense:,.0f}")
+        kpi4.metric("Net Profit", f"₹{net_profit:,.0f}", delta=f"{net_profit_margin_percent:,.1f}% Margin")
 
-            total_material_expense = sum(float(log.get('total_cost', 0.0)) for log in purchase_log_data)
+        st.divider()
+        st.write("#### Financial Overview")
+        chart_col1, chart_col2 = st.columns(2)
 
-            total_expenses = total_labor_expense + total_material_expense
-            net_profit = total_revenue - total_expenses
-            net_profit_margin_percent = (net_profit / total_revenue * 100) if total_revenue != 0 else 0
+        with chart_col1:
+            st.subheader("Revenue vs Expenses")
+            # FIX: Explicit DataFrame construction with proper types
+            chart_data_bar = pd.DataFrame({
+                'Category': ['Revenue', 'Material Expense', 'Labor Expense'],
+                'Amount': [float(total_revenue), float(total_material_expense), float(total_labor_expense)]
+            })
+            
+            bar_chart = alt.Chart(chart_data_bar).mark_bar().encode(
+                x=alt.X('Category:N', axis=alt.Axis(title=None)),
+                y=alt.Y('Amount:Q', axis=alt.Axis(title="Amount (₹)")),
+                color=alt.Color('Category:N', 
+                    scale=alt.Scale(
+                        domain=['Revenue', 'Material Expense', 'Labor Expense'],
+                        range=['#2ecc71', '#e74c3c', '#f1c40f']
+                    ),
+                    legend=None),
+                tooltip=['Category:N', alt.Tooltip('Amount:Q', format='₹,.0f')]
+            ).properties(title='Total Revenue vs Expenses', height=400)
+            
+            st.altair_chart(bar_chart, use_container_width=True)
 
-            st.write("#### Key Financial Metrics")
-            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-            kpi1.metric("Total Revenue", f"₹{total_revenue:,.0f}")
-            kpi2.metric("Material Expenses", f"₹{total_material_expense:,.0f}")
-            kpi3.metric("Labor Expenses", f"₹{total_labor_expense:,.0f}")
-            kpi4.metric("Net Profit", f"₹{net_profit:,.0f}", delta=f"{net_profit_margin_percent:,.1f}% Margin")
+        with chart_col2:
+            st.subheader("Cost Split")
+            total_cost_combined = float(total_material_expense) + float(total_labor_expense)
+            
+            if total_cost_combined > 0:
+                # FIX: Explicit DataFrame construction with proper types
+                chart_data_pie = pd.DataFrame({
+                    'Cost Type': ['Material Cost', 'Labor Cost'],
+                    'Amount': [float(total_material_expense), float(total_labor_expense)]
+                })
+                
+                pie_chart = alt.Chart(chart_data_pie).mark_arc(innerRadius=50).encode(
+                    theta=alt.Theta("Amount:Q", stack=True),
+                    color=alt.Color("Cost Type:N", 
+                        scale=alt.Scale(
+                            domain=['Material Cost', 'Labor Cost'],
+                            range=['#F44336', '#FFC107']
+                        ),
+                        legend=alt.Legend(title="Cost Type")),
+                    order=alt.Order("Amount", sort="descending"),
+                    tooltip=['Cost Type:N', 
+                            alt.Tooltip('Amount:Q', format="₹,.0f")]
+                ).properties(title='Material vs Labor Cost Split', height=400)
+                
+                st.altair_chart(pie_chart, use_container_width=True)
+            else:
+                st.info("No material or labor costs to display. Complete some projects first.")
 
-            st.divider()
-
-            st.write("#### Financial Overview")
-            chart_col1, chart_col2 = st.columns(2)
-
-            with chart_col1:
-                st.subheader("Revenue vs Expenses")
-                # Data Preparation (Bar Chart) - Explicitly cast to float
-                chart_data_bar = pd.DataFrame([
-                    {'Category': 'Revenue', 'Amount': float(total_revenue)},
-                    {'Category': 'Material Expense', 'Amount': float(total_material_expense)},
-                    {'Category': 'Labor Expense', 'Amount': float(total_labor_expense)}
-                ])
-                chart_data_bar['Amount'] = chart_data_bar['Amount'].astype(float)
-                bar_chart = alt.Chart(chart_data_bar).mark_bar().encode(
-                    x=alt.X('Category:N', axis=alt.Axis(title=None, labels=True)),
-                    y=alt.Y('Amount:Q', axis=alt.Axis(title="Amount (₹)", labels=True)),
-                    color=alt.Color('Category:N', scale=alt.Scale(domain=['Revenue', 'Material Expense', 'Labor Expense'], range=['#2ecc71', '#e74c3c', '#f1c40f']), legend=None), # Updated range
-                    tooltip=['Category:N', alt.Tooltip('Amount:Q', format='₹,.0f')]
-                ).properties(
-                    title='Total Revenue vs Expenses'
-                )
-                st.altair_chart(bar_chart, use_container_width=True)
-
-            with chart_col2:
-                st.subheader("Cost Split")
-                # Data Preparation (Pie Chart) - Explicitly cast to float
-                chart_data_pie = pd.DataFrame([
-                    {'Cost Type': 'Material Cost', 'Amount': float(total_material_expense)},
-                    {'Cost Type': 'Labor Cost', 'Amount': float(total_labor_expense)}
-                ])
-                chart_data_pie['Amount'] = chart_data_pie['Amount'].astype(float)
-                total_cost_for_pie = float(total_material_expense) + float(total_labor_expense)
-                if total_cost_for_pie > 0:
-                    pie_chart = alt.Chart(chart_data_pie).mark_arc(innerRadius=50).encode( # Added innerRadius
-                        theta=alt.Theta("Amount:Q", stack=True), # Explicitly :Q
-                        color=alt.Color("Cost Type:N", scale=alt.Scale(domain=['Material Cost', 'Labor Cost'], range=['#F44336', '#FFC107']), legend=alt.Legend(title="Cost Type")), # Updated range
-                        order=alt.Order("Amount", sort="descending"),
-                        tooltip=['Cost Type:N', alt.Tooltip('Amount:Q', format="₹,.0f"), alt.Tooltip('Amount:Q', format=".1%", title="Percentage")] # Explicitly :N and :Q
-                    ).properties(
-                        title='Material vs Labor Cost Split'
-                    )
-                    st.altair_chart(pie_chart, use_container_width=True)
-                else:
-                    st.info("No material or labor costs to display in the cost split chart.")
-
-        else:
-            st.info("No data available to perform Profit & Loss analysis. Please ensure clients, purchases, and settings are configured.")
     except Exception as e:
-        st.error(f"An error occurred during Profit & Loss analysis: {e}")
-        st.info("Please ensure the database connection is active and data is correctly formatted.")
+        st.error(f"Error during P&L calculation: {e}")
+        import traceback
+        st.error("Debug Info: " + traceback.format_exc())
