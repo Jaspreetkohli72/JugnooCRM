@@ -279,7 +279,7 @@ with tab1:
                                     with payment_col2:
                                         actual_payment = st.number_input("Amount Received (₹)", min_value=0.0, value=float(est_advance), step=100.0, key=f"payment_{client['id']}")
                                     
-                                    upd["amount_received"] = actual_payment
+                                    upd["final_settlement_amount"] = actual_payment
                             
                             try:
                                 res = supabase.table("clients").update(upd).eq("id", client['id']).execute()
