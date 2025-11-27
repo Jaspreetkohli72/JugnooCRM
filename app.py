@@ -921,23 +921,33 @@ with tab6:
 
         with chart_col1:
             st.subheader("Revenue vs Expenses")
-            # FIX: Explicit DataFrame construction with proper types
+            # FIX: Ensure all values are proper floats, not numpy types
             chart_data_bar = pd.DataFrame({
                 'Category': ['Revenue', 'Material Expense', 'Labor Expense'],
                 'Amount': [float(total_revenue), float(total_material_expense), float(total_labor_expense)]
             })
             
+            # Convert Amount column to float to ensure compatibility
+            chart_data_bar['Amount'] = chart_data_bar['Amount'].astype(float)
+            
             bar_chart = alt.Chart(chart_data_bar).mark_bar().encode(
-                x=alt.X('Category:N', axis=alt.Axis(title=None)),
-                y=alt.Y('Amount:Q', axis=alt.Axis(title="Amount (₹)")),
+                x=alt.X('Category:N', axis=alt.Axis(title=None, labelAngle=0)),
+                y=alt.Y('Amount:Q', axis=alt.Axis(title="Amount (₹)", format='.0f')),
                 color=alt.Color('Category:N', 
                     scale=alt.Scale(
                         domain=['Revenue', 'Material Expense', 'Labor Expense'],
                         range=['#2ecc71', '#e74c3c', '#f1c40f']
                     ),
                     legend=None),
-                tooltip=['Category:N', alt.Tooltip('Amount:Q', format='₹,.0f')]
-            ).properties(title='Total Revenue vs Expenses', height=400)
+                tooltip=[
+                    alt.Tooltip('Category:N', title='Category'),
+                    alt.Tooltip('Amount:Q', format=',.0f', title='Amount (₹)')
+                ]
+            ).properties(
+                title='Total Revenue vs Expenses', 
+                height=400,
+                width=500
+            )
             
             st.altair_chart(bar_chart, use_container_width=True)
 
@@ -946,24 +956,33 @@ with tab6:
             total_cost_combined = float(total_material_expense) + float(total_labor_expense)
             
             if total_cost_combined > 0:
-                # FIX: Explicit DataFrame construction with proper types
                 chart_data_pie = pd.DataFrame({
                     'Cost Type': ['Material Cost', 'Labor Cost'],
                     'Amount': [float(total_material_expense), float(total_labor_expense)]
                 })
                 
-                pie_chart = alt.Chart(chart_data_pie).mark_arc(innerRadius=50).encode(
-                    theta=alt.Theta("Amount:Q", stack=True),
-                    color=alt.Color("Cost Type:N", 
+                # Convert Amount column to float to ensure compatibility
+                chart_data_pie['Amount'] = chart_data_pie['Amount'].astype(float)
+                
+                pie_chart = alt.Chart(chart_data_pie).mark_arc(innerRadius=50, cornerRadius=5).encode(
+                    theta=alt.Theta('Amount:Q', stack=True),
+                    color=alt.Color('Cost Type:N', 
                         scale=alt.Scale(
                             domain=['Material Cost', 'Labor Cost'],
                             range=['#F44336', '#FFC107']
                         ),
-                        legend=alt.Legend(title="Cost Type")),
-                    order=alt.Order("Amount", sort="descending"),
-                    tooltip=['Cost Type:N', 
-                            alt.Tooltip('Amount:Q', format="₹,.0f")]
-                ).properties(title='Material vs Labor Cost Split', height=400)
+                        legend=alt.Legend(title="Cost Type", orient="bottom")),
+                    order=alt.Order('Amount:Q', sort='descending'),
+                    tooltip=[
+                        alt.Tooltip('Cost Type:N', title='Cost Type'),
+                        alt.Tooltip('Amount:Q', format=',.0f', title='Amount (₹)'),
+                        alt.Tooltip('Amount:Q', format='.1%', title='Percentage')
+                    ]
+                ).properties(
+                    title='Material vs Labor Cost Split', 
+                    height=400,
+                    width=500
+                )
                 
                 st.altair_chart(pie_chart, use_container_width=True)
             else:
