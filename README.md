@@ -1,39 +1,40 @@
-# 🏗️ Jugnoo CRM
+# 🏗️ JugnooCRM: Easy Project & Finance Management
 
-A specialized Construction & Automation CRM built for **Navneet Steel Fabricators**. This application manages clients, estimates, inventory, and supplier costs in real-time.
+## 👋 What is JugnooCRM?
+JugnooCRM is a simple, powerful tool designed to help you manage your entire business workflow in one place. It handles everything from creating accurate client estimates and tracking inventory to monitoring your project finances and profits. It replaces messy paper notes and complex spreadsheets with a clean, easy-to-use digital system.
 
-**📘 [Read the Technical Documentation & User Guide](project_documentation.md)**
+## 🚀 How It Works (The Core Loop)
+The app follows the natural flow of your business:
+1.  **Log In**: Securely access your dashboard.
+2.  **Create Client**: Add a new customer and auto-capture their location.
+3.  **Generate Estimate**: Build a quote using your real-time inventory.
+4.  **Track Profit**: Watch your project financials update automatically as you work.
 
-## 🌟 Key Features
+## 🎨 App Tour: What You See (Aesthetics & Layout)
+*   **Overall Look**: A professional, immersive **Dark Mode** interface (Deep Blue/Black background) that is easy on the eyes and looks modern.
+*   **Key Colors**:
+    *   **Background**: Deep dark blue (`#0E1117`) for a unified look.
+    *   **Cards**: Lighter gray panels (`#262730`) with subtle borders to make your data pop.
+    *   **Text**: Crisp white text for readability, with muted labels.
+*   **Navigation**: A simple sidebar menu with **7 clear tabs** (Dashboard, New Client, Estimator, Inventory, Suppliers, P&L, Settings) lets you switch between tasks instantly.
 
-### 1. 📋 Dashboard & Project Management
-- Track all active sites and their status (Order Received, Work in Progress, Done).
-- **Geolocation**: One-click GPS capture to save site locations. Open directly in Google Maps.
-- **Profit Analytics**: Real-time breakdown of Material Cost vs. Selling Price to calculate exact Net Profit per project.
+## 💡 Key Features Explained
 
-### 2. 🧮 Smart Estimator
-- Create estimates using your Inventory database.
-- **Custom Margins**: Apply global defaults or specific margins (Part/Labor/Extra) for difficult clients.
-- **PDF Generation**: Instantly generate professional **Client Invoices** (for closed jobs) or **Estimates** (for ongoing work).
+### 1. The Estimator Engine (Your Quote Generator)
+*   **Goal**: Quickly create accurate client quotes without doing math in your head.
+*   **The Math**: The system handles all the complex calculations. **Crucially, all final prices are automatically rounded UP to the nearest ₹100.** This simplifies billing and avoids dealing with loose change.
+*   **Margins**: You can set standard profit margins for Parts, Labor, and Extras. For special projects, you can override these with custom sliders.
+*   **Safety Check**: The app watches your stock. If you try to quote for 10 items but only have 5, it gives you a **Low Stock Warning** immediately.
 
-### 3. 🚚 Supplier & Inventory "JIT" System
-- **Live Costing**: Record purchases from suppliers.
-- **Auto-Update**: When you buy an item at a new rate, the system automatically updates your global Inventory price, ensuring future estimates use current market rates.
-- **History**: Track spending and purchase logs.
+### 2. Financial Controls
+*   **P&L (Profit & Loss)**: This tab acts as your business health monitor. It clearly shows **Money Billed vs. Money Spent**, giving you a real-time view of your Net Cash Profit.
+*   **Advance Calculation**: No more guessing how much advance to ask for. The built-in calculator automatically figures out the minimum advance needed to cover your material costs plus a 10% profit buffer.
 
-### 4. 📈 Profit & Loss (P&L)
-- **Business Health**: View total revenue, expenses, and net profit.
-- **Visualizations**: Interactive charts for monthly trends and cost breakdowns.
+### 3. Inventory & Purchasing
+*   **Inventory**: Your digital warehouse. Track exactly what you have in stock and what it costs (Base Rate).
+*   **Purchasing**: When you buy new stock from suppliers, simply log it in the app. The system automatically adds the quantity to your stock and updates the item's cost price to the new rate.
 
-### 5. ⚙️ Admin Control
-- **Inventory Manager**: Bulk edit item rates and units.
-- **Global Settings**: Set default labor costs and profit margins.
+### 4. Client Management & Workflow
+*   **Dashboard**: Your command center. See a list of all active clients, check their status (e.g., "Order Received"), and make quick updates.
+*   **Geolocation**: Forget asking for directions. When adding a new client, one click captures their exact GPS location and creates a Google Maps link for your team.
 
-## 🚀 Getting Started
-
-1. **Setup Secrets**: Ensure `.streamlit/secrets.toml` contains your Supabase credentials (`SUPABASE_URL` and `SUPABASE_KEY`).
-2.  **Run App**:
-    ```bash
-    streamlit run app.py
-    ```
-3. Login: Use your configured username/password.
