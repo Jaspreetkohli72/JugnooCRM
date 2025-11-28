@@ -23,6 +23,12 @@ if st.session_state.get('cache_fix_needed', True):
     st.session_state.cache_fix_needed = False
 # === END OF CRITICAL CACHE FIX ===
 
+# Initialize Session State
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+if 'username' not in st.session_state:
+    st.session_state.username = ""
+
 st.markdown("""
     <style>
     .stApp { background-color: #0E1117 !important; }
@@ -68,7 +74,34 @@ def init_connection():
 supabase = init_connection()
 
 # ---------------------------
-# 2. AUTHENTICATION
+# 2. CACHED DATA FUNCTIONS
+# ---------------------------
+@st.cache_data(ttl=60)
+def get_clients():
+    return supabase.table("clients").select("*").order("created_at", desc=True).execute()
+
+@st.cache_data(ttl=300)
+def get_inventory():
+    return supabase.table("inventory").select("*").order("item_name").execute()
+
+@st.cache_data(ttl=300)
+def get_suppliers():
+    return supabase.table("suppliers").select("*").order("name").execute()
+
+@st.cache_data(ttl=3600)
+def get_settings():
+    try:
+        res = supabase.table("settings").select("*").eq("id", 1).execute()
+        if res and res.data: return res.data[0]
+        return {}
+    except: return {}
+
+import re
+def sanitize_filename(name):
+    return re.sub(r'[^\w\s-]', '', name).strip().replace(' ', '_')
+
+# ---------------------------
+# 3. AUTHENTICATION
 # ---------------------------
 def get_manager():
     return stx.CookieManager(key="auth_cookie_manager")
@@ -85,9 +118,6 @@ def check_login(username, password):
     except Exception as e:
         st.error(f"Database Error: {e}")
         return False
-
-
-
 
 def login_section():
     st.title("🔐 Jugnoo")
@@ -116,23 +146,17 @@ def login_section():
                     st.session_state.username = user
                     expires = datetime.now() + timedelta(days=7)
                     cookie_manager.set("jugnoo_user", user, expires_at=expires)
-                    st.success("Success! Reloading...")
-                    st.cache_resource.clear()
                     st.rerun()
                 else:
-                    st.error("Invalid credentials!")
+                    st.error("Invalid Username or Password")
 
+# ---------------------------
+# 4. MAIN APP LOGIC
+# ---------------------------
 login_section()
 
-# Only show the app if logged in
 if not st.session_state.get('logged_in'):
     st.stop()
-
-
-
-
-
-if not supabase: st.stop()
 
 # Top Bar
 top_c1, top_c2 = st.columns([10, 2])
@@ -141,106 +165,82 @@ if top_c2.button("Log Out", type="secondary"):
     st.session_state.logged_in = False
     cookie_manager.delete("jugnoo_user")
     st.rerun()
-st.divider()
 
-tab1, tab2, tab3, tab5, tab6, tab4 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Estimator", "🚚 Suppliers", "📈 P&L", "⚙️ Settings"])
+# Define Tabs
+tab1, tab2, tab3, tab_inv, tab5, tab6, tab4 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Estimator", "📦 Inventory", "🚚 Suppliers", "📈 P&L", "⚙️ Settings"])
 
 # --- TAB 1: DASHBOARD ---
 with tab1:
-    st.subheader("Client Projects")
+    st.subheader("Client Dashboard")
+    status_filter = st.radio("Show:", ["Active", "All", "Closed"], horizontal=True)
     
-    status_filter = st.radio(
-        "Filter by Status",
-        ('All', 'Active', 'Inactive'),
-        horizontal=True,
-        key="status_filter_radio"
-    )
+    try:
+        all_clients_resp = get_clients()
+        if all_clients_resp and all_clients_resp.data:
+            df = pd.DataFrame(all_clients_resp.data)
+            if status_filter == "Active":
+                df = df[~df['status'].isin(["Closed", "Work Done"])]
+            elif status_filter == "Closed":
+                df = df[df['status'].isin(["Closed", "Work Done"])]
+            
+            if not df.empty:
+                for idx, client in df.iterrows():
+                    with st.expander(f"{client['name']} - {client['status']}"):
+                        st.markdown("### 🛠️ Manage Client")
+                        c1, c2 = st.columns([1.5, 1])
+                        with c1:
+                            st.write("**Edit Details**")
+                            with st.form(f"edit_details_{client['id']}"):
+                                nn = st.text_input("Name", value=client['name'])
+                                np = st.text_input("Phone", value=client.get('phone', ''))
+                                na = st.text_area("Address", value=client.get('address', ''))
+                                ml = st.text_input("Maps Link", value=client.get('location', ''))
+                                
+                                if client.get('location'):
+                                    st.link_button("📍 Open Location", url=client['location'], use_container_width=True)
 
-    with st.spinner("Loading Dashboard..."):
-        try:
-            response = get_clients()
-        except Exception as e:
-            st.error(f"Database Error: {e}")
-            response = None
-    
-        if response and response.data:
-            df = pd.DataFrame(response.data)
-    
-            active_clients_df = df[df['status'].isin(helpers.ACTIVE_STATUSES)]
-            inactive_clients_df = df[df['status'].isin(helpers.INACTIVE_STATUSES)]
-    
-            col1, col2 = st.columns(2)
-            col1.metric("Active Clients", len(active_clients_df))
-            col2.metric("Inactive Clients", len(inactive_clients_df))
-    
-            # Apply filter based on radio button selection
-            if status_filter == 'Active':
-                df_display = active_clients_df
-            elif status_filter == 'Inactive':
-                df_display = inactive_clients_df
-            else:
-                df_display = df
-    
-            st.dataframe(df_display[[c for c in ['name', 'status', 'start_date', 'phone', 'address'] if c in df.columns]], use_container_width=True, hide_index=True)
-            st.divider()
-    
-            with st.expander("🛠️ Manage Client"):
-                client_map = {c['name']: c for c in response.data}
-                sel_name = st.selectbox("Select Client to Manage", list(client_map.keys()), index=None, key="dash_sel")
-                
-                if sel_name:
-                    client = client_map[sel_name]
-                    st.markdown("### 🛠️ Manage Client")
-                    c1, c2 = st.columns([1.5, 1])
-                    with c1:
-                        st.write("**Edit Details**")
-                        loc = get_geolocation(component_key=f"geo_tab1_{client['id']}")
-                        gmaps = ""
-                        if loc:
-                            st.write(f"Detected: {loc['coords']['latitude']}, {loc['coords']['longitude']}")
-                            if st.button("Paste Location", key=f"paste_loc_tab1_{client['id']}"):
-                                gmaps = f"https://www.google.com/maps/search/{loc['coords']['latitude']},{loc['coords']['longitude']}"
-                                st.session_state[f"loc_in_dash_{client['id']}"] = gmaps
+                                if st.form_submit_button("💾 Save Changes"):
+                                    try:
+                                        supabase.table("clients").update({"name": nn, "phone": np, "address": na, "location": ml}).eq("id", client['id']).execute()
+                                        st.success("Saved!")
+                                        get_clients.clear()
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error: {e}")
                         
-                        with st.form("edit_details"):
-                            nn, np, na = st.text_input("Name", value=client['name']), st.text_input("Phone", value=client.get('phone', '')), st.text_area("Address", value=client.get('address', ''))
-                            maps_link_key = f"loc_in_dash_{client['id']}"
-                            current_maps_link = client.get('location', '') # Changed from maps_link to location
-                            if maps_link_key in st.session_state:
-                                current_maps_link = st.session_state[maps_link_key]
-                            ml = st.text_input("Maps Link", value=current_maps_link, key=maps_link_key)
-                            if client.get('location'):
-                                st.link_button("🚀 Open Location in Maps", url=client['location'], use_container_width=True)
-    
-                            if st.form_submit_button("💾 Save Changes"):
-                                try:
-                                    res = supabase.table("clients").update({"name": nn, "phone": np, "address": na, "location": ml}).eq("id", client['id']).execute()
-                                except Exception as e:
-                                    st.error(f"Database Error: {e}")
-                                    res = None
-                    with c2:
-                        st.write("**Project Status**")
-                        opts = helpers.ACTIVE_STATUSES + helpers.INACTIVE_STATUSES
-                        try: idx = opts.index(client.get('status'))
-                        except: idx = 0
-                        n_stat = st.selectbox("Status", opts, index=idx, key=f"st_{client['id']}")
-                        s_date = None
-                        if n_stat in ["Order Received", "Work In Progress", "Work Done"]:
-                            d_str = client.get('start_date')
-                            def_d = datetime.strptime(d_str, '%Y-%m-%d').date() if d_str else datetime.now().date()
-                            s_date = st.date_input("📅 Start Date", value=def_d)
-                        if st.button("Update Status", key=f"btn_{client['id']}"):
-                            upd = {"status": n_stat}
-                            if s_date: upd["start_date"] = s_date.isoformat()
+                        with c2:
+                            st.write("**Project Status**")
+                            opts = helpers.ACTIVE_STATUSES + helpers.INACTIVE_STATUSES
+                            curr_status = client.get('status')
+                            try: idx = opts.index(curr_status)
+                            except: idx = 0
+                            n_stat = st.selectbox("Status", opts, index=idx, key=f"st_{client['id']}")
                             
-                            # NEW: Add payment tracking when marking as Closed
-                            if n_stat == "Closed":
-                                st.write("**💰 Record Payment Received**")
+                            s_date = None
+                            if n_stat in ["Order Received", "Work In Progress", "Work Done"]:
+                                d_str = client.get('start_date')
+                                def_d = datetime.strptime(d_str, '%Y-%m-%d').date() if d_str else datetime.now().date()
+                                s_date = st.date_input("📅 Start Date", value=def_d, key=f"sd_{client['id']}")
+                            
+                            if st.button("Update Status", key=f"btn_{client['id']}"):
+                                upd = {"status": n_stat}
+                                if s_date: upd["start_date"] = s_date.isoformat()
+                                try:
+                                    supabase.table("clients").update(upd).eq("id", client['id']).execute()
+                                    st.success("Status Updated!")
+                                    get_clients.clear()
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error: {e}")
+
+                            # Payment Section (Only for Closed)
+                            if client.get('status') == "Closed":
+                                st.divider()
+                                st.write("💰 **Record Payment Received**")
                                 est_data = client.get('internal_estimate', {})
+                                est_advance = 0
                                 if est_data:
-                                    est_advance = est_data.get('advance_amount', 0)
-                                    if not est_advance:
-                                        # Calculate if not stored
+                                    try:
                                         gs = get_settings()
                                         am_normalized = helpers.normalize_margins(est_data.get('margins'), gs)
                                         calc_results = helpers.calculate_estimate_details(
@@ -249,139 +249,122 @@ with tab1:
                                             margins=am_normalized,
                                             global_settings=gs
                                         )
-                                        est_advance = calc_results["advance_amount"]
+                                        est_advance = calc_results["rounded_grand_total"]
+                                    except:
+                                        pass
+                                
+                                curr_pay = client.get('final_settlement_amount', 0.0)
+                                val_to_show = float(curr_pay) if curr_pay else float(est_advance)
+                                # Enforce rounding (Ceil to 100) and ensure integer type
+                                if pd.isna(val_to_show) or val_to_show == 0:
+                                    val_to_show = int(est_advance) if not pd.isna(est_advance) else 0
+                                else:
+                                    val_to_show = int(math.ceil(val_to_show / 100) * 100)
+                                
+                                payment_col1, payment_col2 = st.columns(2)
+                                with payment_col1:
+                                    st.metric("Estimated Grand Total", f"₹{est_advance:,.0f}")
+                                with payment_col2:
+                                    new_pay_key = f"pay_{client['id']}"
+                                    if new_pay_key not in st.session_state or (st.session_state[new_pay_key] == 0 and val_to_show > 0):
+                                        st.session_state[new_pay_key] = val_to_show
                                     
-                                    payment_col1, payment_col2 = st.columns(2)
-                                    with payment_col1:
-                                        st.metric("Grand Total", f"₹{est_advance:,.0f}")
-                                    with payment_col2:
-                                        actual_payment = st.number_input("Amount Received (₹)", min_value=0.0, value=float(est_advance), step=100.0, key=f"payment_{client['id']}")
-                                    
-                                    upd["final_settlement_amount"] = actual_payment
-                            
-                            try:
-                                res = supabase.table("clients").update(upd).eq("id", client['id']).execute()
-                                if res and res.data: 
-                                    st.success("Status Saved!"); 
+                                    new_pay = st.number_input("Final Amount Received (₹)", min_value=0, value=val_to_show, step=100, key=new_pay_key)
+                                
+                                if st.button("Save Final Payment", key=f"save_pay_{client['id']}"):
+                                    new_pay_rounded = int(math.ceil(new_pay / 100) * 100)
+                                    supabase.table("clients").update({"final_settlement_amount": new_pay_rounded}).eq("id", client['id']).execute()
+                                    st.toast("Payment Saved Successfully!", icon="✅")
+                                    time.sleep(1.0)
+                                    get_clients.clear()
                                     st.rerun()
-                            except Exception as e:
-                                st.error(f"Database Error: {e}")
-    
-                    st.expander("Danger Zone").button("Delete Client", type="secondary", use_container_width=True, on_click=lambda: (
-                        supabase.table("clients").delete().eq("id", client['id']).execute()
-                    ), key=f"del_{client['id']}")
-                    if st.session_state.get(f"del_{client['id']}"): # Check if button was clicked
-                        st.success("Client Deleted!"); st.rerun()
-    
-                    if client.get('internal_estimate'):
-                        st.divider()
-                        st.subheader("📄 Manage Estimate")
-                        est_data = client['internal_estimate']
-                        s_items_raw = est_data.get('items', [])
-                        s_days = float(est_data.get('days', 1.0)) # Directly cast s_days to float here
 
-                        # Sanitize s_items_raw to s_items (list of dicts with float Qty and Base Rate)
-                        s_items_sanitized = []
-                        for item in s_items_raw:
-                            sanitized_item = item.copy()
-                            sanitized_item['Qty'] = float(sanitized_item.get('Qty', 0))
-                            sanitized_item['Base Rate'] = float(sanitized_item.get('Base Rate', 0))
-                            s_items_sanitized.append(sanitized_item)
+                        st.expander("Danger Zone").button("Delete Client", type="secondary", use_container_width=True, on_click=lambda id=client['id']: (
+                            supabase.table("clients").delete().eq("id", id).execute()
+                        ), key=f"del_{client['id']}")
                         
-                        ssk_dash = f"dash_est_{client['id']}"
-                        if ssk_dash not in st.session_state:
-                            st.session_state[ssk_dash] = s_items_sanitized # Initialize editor with sanitized items
-    
-                        if st.session_state[ssk_dash]:
-                            idf = helpers.create_item_dataframe(st.session_state[ssk_dash])
-    
-                            edited_est = st.data_editor(idf, num_rows="dynamic", use_container_width=True, key=f"de_{client['id']}",
-                                                        column_config={
-                                                            "Qty": st.column_config.NumberColumn("Qty", width="small", step=1),
-                                                            "Item": st.column_config.TextColumn("Item", width="large"),
-                                                            "Unit": st.column_config.SelectboxColumn("Unit", options=["pcs", "m", "cm", "in", "ft"], width="small", required=True),
-                                                            "Base Rate": st.column_config.NumberColumn("Base Rate", width="small"),
-                                                            "Unit Price": st.column_config.NumberColumn("Unit Price", format="₹%.2f", width="small", disabled=True),
-                                                            "Total Price": st.column_config.NumberColumn("Total Price", format="₹%.2f", width="small", disabled=True)
-                                                        })
-    
-                            # --- Refactored Calculation Logic ---
-                            gs = get_settings()
-                            # Ensure am is correctly set from stored margins or global settings
-                            am = est_data.get('margins') if est_data.get('margins') else gs
-                            # If custom margins are stored as {'p': val, 'l': val, 'e': val}, convert to full names
-                            if am and 'p' in am:
-                                am_for_calc = {
-                                    'part_margin': am.get('p', 0),
-                                    'labor_margin': am.get('l', 0),
-                                    'extra_margin': am.get('e', 0)
-                                }
+                        if st.session_state.get(f"del_{client['id']}"):
+                             get_clients.clear()
+                             st.rerun()
+
+                        # --- Restore "Manage Estimate" Section ---
+                        if client.get('internal_estimate'):
+                            st.divider()
+                            st.subheader("📋 Manage Estimate")
+                            est_data = client['internal_estimate']
+                            s_items_raw = est_data.get('items', [])
+                            s_days = float(est_data.get('days', 1.0))
+                            
+                            s_items_sanitized = []
+                            for item in s_items_raw:
+                                sanitized_item = item.copy()
+                                sanitized_item['Qty'] = float(sanitized_item.get('Qty', 0))
+                                sanitized_item['Base Rate'] = float(sanitized_item.get('Base Rate', 0))
+                                s_items_sanitized.append(sanitized_item)
+                            
+                            ssk_dash = f"dash_est_{client['id']}"
+                            if ssk_dash not in st.session_state:
+                                st.session_state[ssk_dash] = s_items_sanitized
+
+                            if st.session_state[ssk_dash]:
+                                idf = helpers.create_item_dataframe(st.session_state[ssk_dash])
+                                idf.insert(0, 'Sr No', range(1, len(idf) + 1))
+                                edited_est = st.data_editor(idf, num_rows="dynamic", use_container_width=True, key=f"de_{client['id']}",
+                                                            column_config={
+                                                                "Sr No": st.column_config.NumberColumn("Sr No", width="small", disabled=True),
+                                                                "Qty": st.column_config.NumberColumn("Qty", width="small", step=0.1),
+                                                                "Item": st.column_config.TextColumn("Item", width="large"),
+                                                                "Unit": st.column_config.TextColumn("Unit", width="small", disabled=True),
+                                                                "Base Rate": st.column_config.NumberColumn("Base Rate", width="small"),
+                                                                "Unit Price": st.column_config.NumberColumn("Unit Price", format="₹%.2f", width="small", disabled=True),
+                                                                "Total Price": st.column_config.NumberColumn("Total Price", format="₹%.2f", width="small", disabled=True)
+                                                            })
+                                
+                                gs = get_settings()
+                                am_normalized = helpers.normalize_margins(est_data.get('margins'), gs)
+                                
+                                calculated_results = helpers.calculate_estimate_details(
+                                    edf_items_list=edited_est.to_dict(orient="records"),
+                                    days=s_days,
+                                    margins=am_normalized,
+                                    global_settings=gs
+                                )
+                                
+                                mat_sell = calculated_results["mat_sell"]
+                                labor_charged_display = calculated_results["disp_lt"]
+                                rounded_grand_total = calculated_results["rounded_grand_total"]
+                                total_profit = calculated_results["total_profit"]
+                                advance_amount = calculated_results["advance_amount"]
+                                edited_est_with_prices = calculated_results["edf_details_df"]
+                                
+                                m1, m2, m3, m4, m5 = st.columns(5)
+                                m1.metric("Material Total", f"₹{mat_sell:,.0f}"); m2.metric("Labor", f"₹{labor_charged_display:,.0f}"); m3.metric("Grand Total", f"₹{rounded_grand_total:,.0f}"); m4.metric("Total Profit", f"₹{total_profit:,.0f}"); m5.metric("Advance Required", f"₹{advance_amount:,.0f}")
+                                
+                                if st.button("💾 Save Estimate Changes", key=f"sv_{client['id']}"):
+                                    df_to_save = edited_est_with_prices.copy()
+                                    for col in ['Qty', 'Base Rate', 'Total Price', "Unit Price"]:
+                                        df_to_save[col] = pd.to_numeric(df_to_save[col].fillna(0))
+                                    for col in ['Item', 'Unit']: df_to_save[col] = df_to_save[col].fillna("")
+                                    
+                                    
+                                    st.dataframe(df_profit[['Item', 'Qty', 'Unit', 'Base Rate', 'Total Sell Price', 'Row Profit']], use_container_width=True, hide_index=True)
+                                    st.metric("Net Profit (from Grand Total)", f"₹{total_profit:,.0f}")
+                                else:
+                                    st.info("Mark status as 'Work Done' or 'Closed' to view Internal Profit Analysis.")
                             else:
-                                am_for_calc = am # Use directly if already in full form or global settings
-                            
-                            # Call the centralized function for live editor metrics
-                            calculated_results = helpers.calculate_estimate_details(
-                                edf_items_list=edited_est.to_dict(orient="records"),
-                                days=s_days, # Use sanitized s_days
-                                margins=am_for_calc,
-                                global_settings=gs
-                            )
-    
-                            mat_sell = calculated_results["mat_sell"]
-                            labor_actual_cost = calculated_results["labor_actual_cost"]
-                            rounded_grand_total = calculated_results["rounded_grand_total"]
-                            total_profit = calculated_results["total_profit"]
-                            labor_charged_display = calculated_results["disp_lt"]
-                            edited_est_with_prices = calculated_results["edf_details_df"]
+                                st.warning("Estimate Empty")
+            else:
+                st.info("No clients match the filter.")
+        else:
+            st.info("No clients found.")
+    except Exception as e:
+        st.error(f"Error: {e}")
 
-                            # Per user request for data consistency, re-calculate for "Advance Required" using original saved data
-                            # CRITICAL FIX: Normalize margins using helper function for consistency
-                            am_normalized = helpers.normalize_margins(est_data.get('margins'), gs)
-
-                            saved_data_results = helpers.calculate_estimate_details(
-                                edf_items_list=s_items_sanitized, # Use sanitized s_items_sanitized
-                                days=s_days, # Use sanitized s_days
-                                margins=am_normalized,
-                                global_settings=gs
-                            )
-                            advance_amount = saved_data_results["advance_amount"]
-                            
-                            m1, m2, m3, m4, m5 = st.columns(5)
-                            m1.metric("Material Total", f"₹{mat_sell:,.0f}"); m2.metric("Labor", f"₹{labor_charged_display:,.0f}"); m3.metric("Grand Total", f"₹{rounded_grand_total:,.0f}"); m4.metric("Total Profit", f"₹{total_profit:,.0f}"); m5.metric("Advance Required", f"₹{advance_amount:,.0f}")
-                            
-                            if st.button("💾 Save Changes", key=f"sv_{client['id']}"):
-                                df_to_save = edited_est_with_prices.copy() # Use the DataFrame with updated prices
-                                for col in ['Qty', 'Base Rate', 'Total Price', "Unit Price"]:
-                                    df_to_save[col] = pd.to_numeric(df_to_save[col].fillna(0))
-                                for col in ['Item', 'Unit']: df_to_save[col] = df_to_save[col].fillna("")
-                                new_json = {"items": df_to_save.to_dict(orient="records"), "days": s_days, "margins": est_data.get('margins')} # Save original margins structure
-                                try:
-                                    supabase.table("clients").update({"internal_estimate": new_json}).eq("id", client['id']).execute()
-                                    st.toast("Saved!", icon="✅")
-                                except Exception as e:
-                                    st.error(f"Database Error: {e}")
-                            
-                            st.write("#### 📥 Download Bills")
-                            c_pdf1, c_pdf2 = st.columns(2)
-                            pdf_client = create_pdf(client['name'], edited_est_with_prices.to_dict(orient="records"), s_days, labor_charged_display, rounded_grand_total, advance_amount)
-                            c_pdf1.download_button("📄 Client Invoice", pdf_client, f"Invoice_{client['name']}.pdf", "application/pdf", key=f"pdf_c_{client['id']}")
-                            st.write("#### Internal Profit Analysis")
-                            if client.get('status') == "Work Done":
-                                df_profit = edited_est_with_prices.copy()
-                                df_profit['Qty'] = pd.to_numeric(df_profit['Qty'].fillna(0))
-                                df_profit['Base Rate'] = pd.to_numeric(df_profit['Base Rate'].fillna(0))
-                                df_profit['Total Price'] = pd.to_numeric(df_profit['Total Price'].fillna(0))
-                                
-                                df_profit['Total Sell Price'] = df_profit['Total Price'] # Use existing Total Price as Total Sell Price
-                                
-                                # Use calculate_estimate_details result for profit details if possible, or recalculate
-                                # For now, keeping the original detailed profit calculation here, ensuring it uses edited_est_with_prices
-                                df_profit['Row Profit'] = df_profit.apply(helpers.calculate_profit_row, axis=1)
-                                
-                                # Apply formatting
-                                df_profit['Base Rate'] = df_profit['Base Rate'].round(2)
-                                df_profit['Total Sell Price'] = df_profit['Total Sell Price'].round(2)
-                                df_profit['Row Profit'] = df_profit['Row Profit'].round(2)
+# --- TAB 2: NEW CLIENT ---
+with tab2:
+    st.subheader("Add New Client")
+    loc_new_client = get_geolocation(component_key="geo_tab2_new_client")
+    gmaps_new_client = ""
     if loc_new_client:
         st.write(f"Detected: {loc_new_client['coords']['latitude']}, {loc_new_client['coords']['longitude']}")
         if st.button("Paste Location to Form", key="paste_loc_tab2_new_client"):
@@ -401,7 +384,10 @@ with tab1:
         if st.form_submit_button("Create Client", type="primary"):
             try:
                 res = supabase.table("clients").insert({"name": nm, "phone": ph, "address": ad, "location": ml_new_client, "status": "Estimate Given", "created_at": datetime.now().isoformat()}).execute()
-                if res and res.data: st.success(f"Client {nm} Added!"); st.rerun()
+                if res and res.data: 
+                    st.success(f"Client {nm} Added!")
+                    get_clients.clear()
+                    st.rerun()
                 else: st.error("Save Failed.")
             except Exception as e:
                 st.error(f"Database Error: {e}")
@@ -444,7 +430,7 @@ with tab3:
 
         # Step A: Fetch Stock Data
         try:
-            inv_all_items_response = supabase.table("inventory").select("item_name, stock_quantity").execute()
+            inv_all_items_response = get_inventory()
         except Exception as e:
             st.error(f"Database Error: {e}")
             inv_all_items_response = None
@@ -452,35 +438,35 @@ with tab3:
         if inv_all_items_response and inv_all_items_response.data:
             stock_map = {item['item_name']: item.get('stock_quantity', 0.0) for item in inv_all_items_response.data}
             
-        try:
-            inv = supabase.table("inventory").select("*").execute()
-        except Exception as e:
-            st.error(f"Database Error: {e}")
-            inv = None
+        inv = inv_all_items_response
         if inv and inv.data:
             imap = {i['item_name']: i for i in inv.data}
             with st.form("add_est"):
                 c1, c2, c3 = st.columns([3, 1, 1])
                 inam = c1.selectbox("Item", list(imap.keys()))
-                iqty = c2.number_input("Qty", 1.0, step=1.0)
-                unit_options = ["pcs", "m", "ft", "cm", "in"]
+                
                 default_unit = imap.get(inam, {}).get('unit', 'pcs')
-                unit_index = unit_options.index(default_unit) if default_unit in unit_options else 0
-                iunit = c3.selectbox("Unit", unit_options, index=unit_index)
+                step_val = 1.0 if default_unit == "pcs" else 0.1
+                
+                iqty = c2.number_input("Qty", min_value=0.1, step=step_val)
+                iunit = c3.text_input("Unit", value=default_unit, disabled=True)
+                
                 if st.form_submit_button("⬇️ Add"):
                     selected_item = imap.get(inam, {})
-                    st.session_state[ssk].append({"Item": inam, "Qty": iqty, "Base Rate": selected_item.get('base_rate', 0), "Unit": iunit})
+                    st.session_state[ssk].append({"Item": inam, "Qty": iqty, "Base Rate": selected_item.get('base_rate', 0), "Unit": default_unit})
                     st.rerun()
 
         if st.session_state[ssk]:
             df = helpers.create_item_dataframe(st.session_state[ssk])
+            df.insert(0, 'Sr No', range(1, len(df) + 1))
 
             st.write("#### Items")
             edf = st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"t_{tc['id']}", 
                 column_config={
-                    "Qty": st.column_config.NumberColumn("Qty", width="small", step=1),
+                    "Sr No": st.column_config.NumberColumn("Sr No", width="small", disabled=True),
+                    "Qty": st.column_config.NumberColumn("Qty", width="small", step=0.1), # Allow float generally, restricted at input
                     "Item": st.column_config.TextColumn("Item", width="large"),
-                    "Unit": st.column_config.SelectboxColumn("Unit", options=["pcs", "m", "ft", "cm", "in"], width="small", required=True),
+                    "Unit": st.column_config.TextColumn("Unit", width="small", disabled=True),
                     "Base Rate": st.column_config.NumberColumn("Base Rate", width="small"),
                     "Unit Price": st.column_config.NumberColumn("Unit Price", format="₹%.2f", width="small", disabled=True),
                     "Total Price": st.column_config.NumberColumn("Total Price", format="₹%.2f", width="small", disabled=True)
@@ -491,9 +477,6 @@ with tab3:
             edf['Base Rate'] = pd.to_numeric(edf['Base Rate'], errors='coerce').fillna(0).astype(float)
 
             # --- Universal Calculation Logic ---
-
-            # --- Universal Calculation Logic ---
-            # Use centralized helper function for consistency
             gs = get_settings()
             am_for_calc = am  # Use the margins already set above
 
@@ -538,8 +521,6 @@ with tab3:
             # Update dataframe with calculated prices from helper function
             edf = calculated_results["edf_details_df"].copy()
 
-
-            
             st.divider()
             c1, c2, c3, c4, c5 = st.columns(5)
             c1.metric("Material", f"₹{mt:,.0f}"); c2.metric("Labor", f"₹{disp_lt:,.0f}"); c3.metric("Grand Total", f"₹{rounded_gt:,.0f}"); c4.metric("Total Profit", f"₹{total_profit:,.0f}"); c5.metric("Advance Required", f"₹{advance_amount:,.0f}")
@@ -558,574 +539,390 @@ with tab3:
                 except Exception as e:
                     st.error(f"Database Error: {e}")
             
-            pbytes = create_pdf(tc['name'], edf.to_dict(orient="records"), dys, disp_lt, rounded_gt, advance_amount)
-            cp.download_button("📄 Download PDF", pbytes, f"Est_{tc['name']}.pdf", "application/pdf", key=f"pe_{tc['id']}")
-
-# --- TAB 4: SETTINGS ---
-with tab4:
-    st.subheader("Global Defaults")
-    s = get_settings()
-    with st.form("glob_set"):
-        c1, c2, c3 = st.columns(3)
-        p = c1.slider("Part %", 0, 100, int(s.get('part_margin', 15.0)))
-        l = c2.slider("Labor %", 0, 100, int(s.get('labor_margin', 20.0)))
-        e = c3.slider("Extra %", 0, 100, int(s.get('extra_margin', 5.0)))
-        
-        lc = st.number_input("Daily Labor (₹)", value=float(s.get('daily_labor_cost', 1000.0)), step=100.0)
-
-        total_markup = p + l + e
-        gross_margin = (total_markup / (100 + total_markup)) * 100 if (100 + total_markup) != 0 else 0
-        
-        st.info(f"Total Markup Applied: {total_markup}%  |  Actual Gross Margin: {gross_margin:.1f}%")
-
-        if st.form_submit_button("Update Settings"):
-            try:
-                supabase.table("settings").upsert({"id": 1, "part_margin": p, "labor_margin": l, "extra_margin": e, "daily_labor_cost": lc}).execute()
-                st.success("Saved!"); st.cache_resource.clear(); st.rerun()
-            except Exception as e:
-                st.error(f"Database Error: {e}")
+            pbytes = create_pdf(tc['name'], edf.to_dict(orient="records"), dys, disp_lt, rounded_gt, advance_amount, is_final=False)
+            sanitized_est_name = sanitize_filename(tc['name'])
+            cp.download_button("📄 Download PDF", pbytes, f"Est_{sanitized_est_name}.pdf", "application/pdf", key=f"pe_{tc['id']}")
+# --- TAB 4: INVENTORY ---
+with tab_inv:
+    st.subheader("📦 Inventory Management")
+    
+    # Add New Item
+    with st.expander("➕ Add New Item"):
+        with st.form("add_inv_item"):
+            c1, c2, c3 = st.columns([2, 1, 1])
+            inm = c1.text_input("Item Name")
+            ib_rate = c2.number_input("Base Rate (₹)", min_value=0.0, step=0.1)
+            iunit = c3.selectbox("Unit", ["pcs", "m", "ft", "cm", "in"])
             
-    st.divider()
-    st.subheader("💰 Advance Payment Calculator")
-    
-    st.write("**How Advance is Calculated:**")
-    st.info("""
-    Advance Required = (Total Base Cost + (Total Profit × Advance Percentage)) / 100 × 100 (rounded)
-    
-    Where:
-    - Total Base Cost = Material Cost + Labor Cost
-    - Total Profit = Grand Total - Total Base Cost
-    - Advance Percentage = % of profit to collect as advance
-    """)
-    
-    with st.form("advance_calc_settings"):
-        advance_pct = st.slider(
-            "Advance % of Profit", 
-            min_value=0, 
-            max_value=100, 
-            value=int(s.get('advance_percentage', 10.0)),
-            help="What % of profit to collect as advance payment"
-        )
-        
-        col_ex1, col_ex2 = st.columns(2)
-        with col_ex1:
-            st.write("**Example Calculation:**")
-            example_base_cost = 10000
-            example_profit = 5000
-            example_advance = math.ceil((example_base_cost + (example_profit * advance_pct / 100)) / 100) * 100
-            st.text(f"Base Cost: ₹{example_base_cost:,}")
-            st.text(f"Profit: ₹{example_profit:,}")
-            st.text(f"Advance ({advance_pct}%): ₹{example_advance:,}")
-        
-        with col_ex2:
-            st.write("**Your Current Settings:**")
-            st.text(f"Part Margin: {int(s.get('part_margin', 15))}%")
-            st.text(f"Labor Margin: {int(s.get('labor_margin', 20))}%")
-            st.text(f"Extra Margin: {int(s.get('extra_margin', 5))}%")
-            st.text(f"Daily Labor Cost: ₹{float(s.get('daily_labor_cost', 1000)):,.0f}")
-        
-        if st.form_submit_button("Update Advance Settings"):
-            try:
-                supabase.table("settings").upsert({
-                    "id": 1, 
-                    "advance_percentage": advance_pct
-                }).execute()
-                st.success("Advance settings updated!"); 
-                st.cache_resource.clear(); 
-                st.rerun()
-            except Exception as e:
-                st.error(f"Database Error: {e}")
-    
-    st.divider()
-    st.subheader("Inventory (Editable)")
-    with st.form("inv_add"):
-        c1, c2, c3 = st.columns([2, 1, 1])
-        new_item, rate = c1.text_input("Item Name"), c2.number_input("Rate", min_value=0.0)
-        unit = c3.selectbox("Unit", ['pcs', 'm', 'ft', 'cm', 'in'])
-        if st.form_submit_button("Add Item"):
-            try:
-                supabase.table("inventory").insert({"item_name": new_item, "base_rate": rate, "unit": unit}).execute()
-                st.success("Added"); st.rerun()
-            except Exception as e:
-                st.error(f"Database Error: {e}")
-    
+            if st.form_submit_button("Add Item"):
+                try:
+                    supabase.table("inventory").insert({"item_name": inm, "base_rate": ib_rate, "unit": iunit, "stock_quantity": 0}).execute()
+                    st.success(f"Item '{inm}' added!")
+                    get_inventory.clear()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+    # List Inventory
     try:
         inv_resp = get_inventory()
-    except Exception as e:
-        st.error(f"Database Error: {e}")
-        inv_resp = None
-    if inv_resp and inv_resp.data:
-        inv_df = pd.DataFrame(inv_resp.data)
-        if 'unit' not in inv_df.columns: inv_df['unit'] = "pcs"
-        # Ensure 'stock_quantity' column exists and fill NaN with 0 for display and editing
-        if 'stock_quantity' not in inv_df.columns:
-            inv_df['stock_quantity'] = 0.0
-        else:
-            inv_df['stock_quantity'] = pd.to_numeric(inv_df['stock_quantity'], errors='coerce').fillna(0.0)
+        if inv_resp and inv_resp.data:
+            idf = pd.DataFrame(inv_resp.data)
+            idf['Sr No'] = range(1, len(idf) + 1)
+            
+            # Editable Dataframe
+            edited_inv = st.data_editor(
+                idf[['Sr No', 'item_name', 'stock_quantity', 'base_rate', 'unit']],
+                key="inv_editor",
+                use_container_width=True,
+                column_config={
+                    "Sr No": st.column_config.NumberColumn("Sr No", disabled=True),
+                    "item_name": st.column_config.TextColumn("Item Name"),
+                    "stock_quantity": st.column_config.NumberColumn("Stock", step=1),
+                    "base_rate": st.column_config.NumberColumn("Base Rate", format="₹%.2f"),
+                    "unit": st.column_config.SelectboxColumn("Unit", options=["pcs", "m", "ft", "cm", "in"])
+                },
+                hide_index=True
+            )
+            
+            with st.expander("🛠️ Manage Item"):
+                item_list = {i['item_name']: i for i in inv_resp.data}
+                sel_item_name = st.selectbox("Select Item", list(item_list.keys()))
+                if sel_item_name:
+                    item = item_list[sel_item_name]
+                    with st.form("edit_inv"):
+                        c1, c2 = st.columns(2)
+                        new_name = c1.text_input("Name", value=item['item_name'])
+                        new_rate = c2.number_input("Base Rate", value=float(item['base_rate']))
+                        new_stock = st.number_input("Stock", value=float(item['stock_quantity']))
+                        new_unit = st.selectbox("Unit", ["pcs", "m", "ft", "cm", "in"], index=["pcs", "m", "ft", "cm", "in"].index(item['unit']) if item['unit'] in ["pcs", "m", "ft", "cm", "in"] else 0)
+                        
+                        if st.form_submit_button("Update Item"):
+                            supabase.table("inventory").update({
+                                "item_name": new_name,
+                                "base_rate": new_rate,
+                                "stock_quantity": new_stock,
+                                "unit": new_unit
+                            }).eq("id", item['id']).execute()
+                            st.success("Updated!")
+                            get_inventory.clear()
+                            st.rerun()
+                    
+                    if st.button("Delete Item", type="secondary"):
+                        supabase.table("inventory").delete().eq("id", item['id']).execute()
+                        st.success("Deleted!")
+                        get_inventory.clear()
+                        st.rerun()
 
-        edited_inv = st.data_editor(inv_df, num_rows="dynamic", key="inv_table_edit",
-                                    column_config={
-                                        "id": None, # Hide the 'id' column
-                                        "item_name": st.column_config.Column("Item Name", width="medium"),
-                                        "base_rate": st.column_config.NumberColumn("Rate", width="small"),
-                                        "unit": st.column_config.SelectboxColumn("Unit", options=['pcs', 'm', 'ft', 'cm', 'in'], width="small", required=True),
-                                        "stock_quantity": st.column_config.NumberColumn("Stock Quantity", width="small", help="Current physical stock of the item.")
-                                    })
-        
-        if st.button("💾 Save Inventory Changes"):
-            df_to_save = edited_inv.copy()
-            df_to_save['base_rate'] = pd.to_numeric(df_to_save['base_rate'].fillna(0))
-            df_to_save['stock_quantity'] = pd.to_numeric(df_to_save['stock_quantity'].fillna(0)) # Add this line
-            df_to_save['item_name'] = df_to_save['item_name'].fillna("")
-            df_to_save['unit'] = df_to_save['unit'].fillna("")
-            recs = df_to_save.to_dict(orient="records")
-            errors = 0
-            for row in recs:
-                if row.get('item_name'):
-                    try:
-                        supabase.table("inventory").upsert(row).execute()
-                    except Exception as e:
-                        errors += 1
-                        st.error(f"Error saving {row.get('item_name')}: {e}")
-            if errors == 0: 
-                st.success("Inventory Updated!")
-                st.rerun()
-            else: 
-                st.warning(f"{errors} items failed to save.")
-    
-    st.divider()
-    with st.form("pwd_chg"):
-        st.subheader("User Profile")
-        op = st.text_input("Old Password", type="password")
-        np = st.text_input("New Password", type="password")
-        if st.form_submit_button("Update Password"):
-            try:
-                res = supabase.table("users").select("password").eq("username", st.session_state.username).execute()
-                if res and res.data:
-                    current_password = res.data[0]['password']
-                    if op == current_password:  # Plain text comparison
-                        supabase.table("users").update({"password": np}).eq("username", st.session_state.username).execute()
-                        st.success("Password updated successfully!")
-                    else:
-                        st.error("Incorrect old password.")
-                else:
-                    st.error("Could not verify user.")
-            except Exception as e:
-                st.error(f"Database Error: {e}")
+    except Exception as e:
+        st.error(f"Error loading inventory: {e}")
 
 # --- TAB 5: SUPPLIERS ---
 with tab5:
-    st.header("🚚 Supplier & Purchase Management")
-
-    # --- Middle Section (Full Width): Existing Suppliers ---
-    st.subheader("Existing Suppliers")
-    with st.spinner("Loading Suppliers..."):
+    st.subheader("Supplier Management")
+    
+    # 1. Record Purchase
+    with st.expander("📝 Record Purchase", expanded=True):
         try:
-            supplier_resp = get_suppliers()
-        except Exception as e:
-            st.error(f"Database Error: {e}")
-            supplier_resp = None
-    if supplier_resp and supplier_resp.data:
-        df_suppliers = pd.DataFrame(supplier_resp.data)
-        edited_suppliers = st.data_editor(df_suppliers, num_rows="dynamic", use_container_width=True, key="sup_editor",
-                                            column_config={
-                                                "id": None,
-                                                "name": st.column_config.TextColumn("Supplier Name", width="large", required=True),
-                                                "contact_person": st.column_config.TextColumn("Contact Person", width="medium"),
-                                                "phone": st.column_config.TextColumn("Phone", width="medium"),
-                                                "gstin": st.column_config.TextColumn("GSTIN", width="medium")
-                                            })
-        
-        if st.button("💾 Save Supplier Changes", key="save_sup_changes"):
-            df_to_save = edited_suppliers.copy()
-            recs_to_upsert = df_to_save.to_dict(orient="records")
-            errors_occurred = False
-            for record in recs_to_upsert:
-                if record.get("name"):
-                    try:
-                        res = supabase.table("suppliers").upsert(record).execute()
-                        if not (res and res.data):
-                            errors_occurred = True
-                            st.error(f"Failed to save supplier: {record.get('name')}")
-                    except Exception as e:
-                        errors_occurred = True
-                        st.error(f"Failed to save supplier: {record.get('name')}: {e}")
-                else:
-                    st.warning("Skipped saving a row with an empty supplier name.")
-
-            if not errors_occurred:
-                st.success("Suppliers Updated!")
-                st.rerun()
-    else:
-        st.info("No suppliers found. Add one using the form above.")
-
-    with st.expander("Record Purchase & Add New Supplier"):
-        col_purchase, col_manage = st.columns([2, 1])
-
-        # --- Top Section: Left Column (Record Purchase) ---
-        with col_purchase:
-            st.subheader("Record Purchase")
-            with st.form("record_purchase_form"):
-                try:
-                    suppliers_response = get_suppliers()
-                except Exception as e:
-                    st.error(f"Database Error: {e}")
-                    suppliers_response = None
-                try:
-                    inventory_response = get_inventory()
-                except Exception as e:
-                    st.error(f"Database Error: {e}")
-                    inventory_response = None
-        
-                supplier_options = {s['name']: s['id'] for s in suppliers_response.data} if suppliers_response and suppliers_response.data else {}
-                inventory_options = {i['item_name']: i for i in inventory_response.data} if inventory_response and inventory_response.data else {}
+            sup_resp = get_suppliers()
+            inv_resp = get_inventory()
+        except:
+            sup_resp = None; inv_resp = None
+            
+        if sup_resp and sup_resp.data and inv_resp and inv_resp.data:
+            s_map = {s['name']: s['id'] for s in sup_resp.data}
+            i_map = {i['item_name']: i for i in inv_resp.data}
+            
+            with st.form("rec_pur"):
+                c1, c2 = st.columns(2)
+                s_name = c1.selectbox("Supplier", list(s_map.keys()))
+                i_name = c2.selectbox("Item", list(i_map.keys()))
                 
-                if not supplier_options:
-                    st.warning("Please add a supplier in the 'Directory' section first.")
-                if not inventory_options:
-                    st.warning("Please add inventory items in the 'Settings' tab first.")
+                c3, c4 = st.columns(2)
+                qty = c3.number_input("Quantity Purchased", min_value=1.0, step=1.0)
+                rate = c4.number_input("Purchase Rate", min_value=0.0, step=0.1)
+                
+                if st.form_submit_button("✅ Record Purchase"):
+                    try:
+                        # Update Inventory Stock & Base Rate
+                        curr_item = i_map[i_name]
+                        new_stock = float(curr_item.get('stock_quantity', 0)) + qty
+                        # Update base rate to latest purchase rate (or weighted average - keeping simple for now)
+                        
+                        supabase.table("inventory").update({"stock_quantity": new_stock, "base_rate": rate}).eq("id", curr_item['id']).execute()
+                        
+                        # Log Purchase (Optional - if you had a purchases table)
+                        # supabase.table("purchases").insert({...}).execute()
+                        
+                        st.success(f"Purchase Recorded! New Stock: {new_stock}")
+                        get_inventory.clear()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+        else:
+            st.warning("Add Suppliers and Inventory Items first.")
 
-                if supplier_options and inventory_options:
-                    selected_supplier_name = st.selectbox("Select Supplier", list(supplier_options.keys()), key="pur_sup_sel")
-                    selected_item_name = st.selectbox("Select Item", list(inventory_options.keys()), key="pur_item_sel")
-
-                    default_rate = inventory_options.get(selected_item_name, {}).get('base_rate', 0.0)
-                    purchase_rate = st.number_input("Buying Rate", min_value=0.0, value=float(default_rate), step=0.01, key=f"rate_{selected_item_name}")
-                    purchase_qty = st.number_input("Quantity", min_value=0.0, value=1.0, step=1.0, format="%.2f", key="pur_qty")
-                    update_inventory_base_rate = st.checkbox("Update Inventory Base Rate?", value=True, key="pur_update_inv")
-
-                    if st.form_submit_button("✅ Record Transaction", type="primary"):
-                        if selected_supplier_name and selected_item_name and purchase_qty > 0:
-                            supplier_id = supplier_options[selected_supplier_name]
-                            total_cost = purchase_rate * purchase_qty
-
-                            try:
-                                res_purchase = supabase.table("purchase_log").insert({
-                                    "supplier_id": supplier_id,
-                                    "item_name": selected_item_name,
-                                    "qty": purchase_qty,
-                                    "rate": purchase_rate,
-                                    "total_cost": total_cost
-                                }).execute()
-                            except Exception as e:
-                                st.error(f"Database Error: {e}")
-                                res_purchase = None
-
-                            if res_purchase and res_purchase.data:
-                                try:
-                                    supabase.rpc(
-                                        "increment_stock",
-                                        {
-                                            "item_name_param": selected_item_name,
-                                            "increment_by_param": purchase_qty
-                                        }
-                                    ).execute()
-                                except Exception as e:
-                                    st.error(f"Database Error: {e}")
-                                
-                                if update_inventory_base_rate:
-                                    try:
-                                        res_inventory = supabase.table("inventory").update({"base_rate": purchase_rate}).eq("item_name", selected_item_name).execute()
-                                        if res_inventory and res_inventory.data:
-                                            st.success("Purchase Recorded, Stock & Inventory Updated!")
-                                            st.rerun()
-                                        else:
-                                            st.error("Purchase Recorded, Stock Updated, but failed to update Inventory Base Rate.")
-                                    except Exception as e:
-                                        st.error(f"Database Error: {e}")
-                                else:
-                                    st.success("Purchase Recorded & Stock Updated!")
-                                    st.rerun()
-                            else:
-                                st.error("Failed to record purchase.")
-                        else:
-                            st.warning("Please fill all required fields and ensure quantity is > 0.")
-        
-        
-        # --- Top Section: Right Column (Add New Supplier) ---
-        with col_manage:
-            st.subheader("Directory")
-            with st.form("add_supplier_form"):
-                s_name = st.text_input("Supplier Name")
-                s_contact = st.text_input("Contact Person")
-                s_phone = st.text_input("Phone")
-                s_gstin = st.text_input("GSTIN")
-                if st.form_submit_button("Add New Supplier", type="primary"):
-                    if s_name:
-                        try:
-                            res = supabase.table("suppliers").insert({"name": s_name, "contact_person": s_contact, "phone": s_phone, "gstin": s_gstin}).execute()
-                            if res and res.data:
-                                st.success(f"Supplier {s_name} added!")
-                                st.rerun()
-                            else:
-                                st.error("Failed to add supplier.")
-                        except Exception as e:
-                            st.error(f"Database Error: {e}")
-                    else:
-                        st.warning("Supplier Name cannot be empty.")
-
-    # --- Bottom Section (Full Width): Recent History ---
     st.divider()
-    st.subheader("Recent Purchase History")
-    try:
-        purchase_log_resp = supabase.table("purchase_log").select("*, suppliers(name)").order("created_at", desc=True).limit(50).execute()
-    except Exception as e:
-        st.error(f"Database Error: {e}")
-        purchase_log_resp = None
-
-    if purchase_log_resp and purchase_log_resp.data:
-        df_purchases = pd.DataFrame(purchase_log_resp.data)
-        
-        # The join is now done in the query. We just need to flatten the structure.
-        df_purchases['supplier_name'] = df_purchases['suppliers'].apply(lambda x: x['name'] if isinstance(x, dict) else 'N/A')
-        
-        display_cols = ['created_at', 'supplier_name', 'item_name', 'qty', 'rate', 'total_cost']
-        for col in display_cols:
-            if col not in df_purchases.columns:
-                df_purchases[col] = 'N/A'
-
-        df_purchases['created_at'] = pd.to_datetime(df_purchases['created_at']).dt.strftime('%Y-%m-%d %H:%M')
-        df_purchases['rate'] = pd.to_numeric(df_purchases['rate'], errors='coerce').round(2)
-        df_purchases['total_cost'] = pd.to_numeric(df_purchases['total_cost'], errors='coerce').round(2)
-        
-        st.dataframe(df_purchases[display_cols], use_container_width=True, hide_index=True)
+    
+    # 2. Supplier Directory
+    st.markdown("### 📒 Supplier Directory")
+    if sup_resp and sup_resp.data:
+        sdf = pd.DataFrame(sup_resp.data)
+        st.dataframe(sdf[['name', 'contact_person', 'phone']], use_container_width=True, hide_index=True)
     else:
-        st.info("No purchases recorded yet.")
+        st.info("No suppliers found.")
 
-# --- TAB 6: PROFIT & LOSS ---
+# --- TAB 6: P&L ---
 with tab6:
     st.subheader("📈 Profit & Loss Analysis")
-
-    with st.spinner("Loading P&L Data..."):
+    
+    if st.button("🔄 Refresh Data"):
+        get_clients.clear()
+        st.rerun()
+        
+    with st.spinner("Loading Financial Data..."):
         try:
-            clients_response = supabase.table("clients").select("*").execute()
-            purchase_log_response = supabase.table("purchase_log").select("total_cost").execute()
+            cl_resp = get_clients()
+            # Fetch Purchase Log for Global Expense Calculation (Main Branch Feature)
+            purchase_log_resp = supabase.table("purchase_log").select("total_cost").execute()
             settings = get_settings()
         except Exception as e:
-            st.error(f"Database Error during data fetch: {e}")
-            clients_response = None
-            purchase_log_response = None
-            settings = None
+            st.error(f"Data Fetch Error: {e}")
+            cl_resp = None
+            purchase_log_resp = None
+            settings = {}
 
-    if not clients_response or not clients_response.data:
-        st.warning("No client data found.")
-        st.stop()
+    if cl_resp and cl_resp.data:
+        df = pd.DataFrame(cl_resp.data)
+        # Filter for completed projects for Project-based P&L
+        closed_df = df[df['status'].isin(["Work Done", "Closed"])]
+        
+        # --- 1. GLOBAL CASH FLOW ANALYSIS (Main Branch Logic) ---
+        # This tracks actual money in vs money out, regardless of project status
+        
+        # Total Revenue (Collected)
+        # In Dev branch, we use 'final_settlement_amount' as the source of truth for collection
+        # In Main branch, it was 'amount_received'
+        # We will sum 'final_settlement_amount' for ALL clients (assuming partial payments aren't tracked separately yet)
+        # For accurate cash flow, we should sum payments from ALL clients, but currently payment is only recorded on Close.
+        # So we stick to Closed clients for Revenue to be safe, or if we want "Total Collected", we sum all non-null final_settlement_amounts.
+        
+        total_collected = df['final_settlement_amount'].fillna(0).sum()
+        
+        # Total Quoted Value (Sum of Estimates for Closed Projects)
+        total_quoted = 0.0
+        for idx, row in closed_df.iterrows():
+            est = row.get('internal_estimate')
+            if est:
+                 try:
+                    # Recalculate grand total to be sure
+                    am_normalized = helpers.normalize_margins(est.get('margins'), settings)
+                    calc = helpers.calculate_estimate_details(est.get('items', []), est.get('days', 1.0), am_normalized, settings)
+                    total_quoted += calc["rounded_grand_total"]
+                 except: pass
 
-    try:
-        all_clients = clients_response.data
-        purchase_log_data = purchase_log_response.data if purchase_log_response and purchase_log_response.data else []
+        # Total Expenses (Global)
+        # Material Expense from Purchase Log
+        purchase_log_data = purchase_log_resp.data if purchase_log_resp and purchase_log_resp.data else []
+        total_material_expense_cash = sum(float(log.get('total_cost', 0.0)) for log in purchase_log_data if log.get('total_cost'))
+        
+        # Labor Expense (Sum of labor cost from Closed projects)
+        # We assume labor is paid when project is closed/done.
+        total_labor_expense_cash = 0.0
         daily_labor_cost = float(settings.get('daily_labor_cost', 1000.0))
-
-        total_revenue = 0.0
-        total_labor_expense = 0.0
-        total_profit_estimated = 0.0
-        total_payment_received = 0.0
-        completed_projects = 0
         
-        # --- Calculate Metrics ---
-        for client in all_clients:
-            estimate = client.get('internal_estimate')
-            
-            if not estimate:
-                continue
+        for idx, row in closed_df.iterrows():
+            est = row.get('internal_estimate')
+            if est:
+                days = float(est.get('days', 0.0))
+                total_labor_expense_cash += (days * daily_labor_cost)
                 
-            labor_days = float(estimate.get('days', 0.0))
-            client_labor_cost = labor_days * daily_labor_cost
-            
-            if client.get('status') in ["Work Done", "Closed"]:
-                total_labor_expense += client_labor_cost
-                items = estimate.get('items', [])
-                
-                if not items:
-                    continue
-                
-                completed_projects += 1
-                material_sell_price_for_client = 0.0
-                for item in items:
-                    try:
-                        qty = float(item.get('Qty', 0))
-                        base_rate = float(item.get('Base Rate', 0))
-                        unit = item.get('Unit', 'pcs')
-                        
-                        client_margins = estimate.get('margins')
-                        am_for_client = helpers.normalize_margins(client_margins, settings)
-                        
-                        mm_for_client = 1 + (am_for_client.get('part_margin', 0)/100) + (am_for_client.get('labor_margin', 0)/100) + (am_for_client.get('extra_margin', 0)/100)
-                        
-                        factor = helpers.CONVERSIONS.get(unit, 1.0)
-                        if unit in ['m', 'cm', 'ft', 'in']:
-                            material_sell_price_for_client += base_rate * (qty * factor) * mm_for_client
-                        else:
-                            material_sell_price_for_client += base_rate * qty * mm_for_client
-                    except (ValueError, TypeError):
-                        continue
-
-                client_raw_grand_total = material_sell_price_for_client + client_labor_cost
-                client_rounded_grand_total = math.ceil(client_raw_grand_total / 100) * 100
-                total_revenue += client_rounded_grand_total
-                
-                # NEW: Calculate estimated profit
-                total_material_base_cost = sum(float(item.get('Base Rate', 0)) * float(item.get('Qty', 0)) for item in items)
-                total_base_cost = total_material_base_cost + client_labor_cost
-                total_profit_estimated += (client_rounded_grand_total - total_base_cost)
-                
-                # NEW: Get actual payment received
-                actual_payment = float(client.get('amount_received', client_rounded_grand_total))
-                total_payment_received += actual_payment
-
-        total_material_expense = float(sum(float(log.get('total_cost', 0.0)) for log in purchase_log_data if log.get('total_cost')))
-        total_expenses = total_labor_expense + total_material_expense
-        net_profit_estimated = total_revenue - total_expenses
-        actual_profit = total_payment_received - total_expenses
-        actual_margin_pct = (actual_profit / total_payment_received * 100) if total_payment_received != 0 else 0
-
-        st.divider()
+        total_expenses_cash = total_material_expense_cash + total_labor_expense_cash
         
-        # === KPI #1: Key Metrics Overview ===
-        st.write("#### 📊 Key Business Metrics")
-        kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
-        kpi_col1.metric("Completed Projects", completed_projects)
-        kpi_col2.metric("Total Revenue (Grand Total)", f"₹{total_revenue:,.0f}")
-        kpi_col3.metric("Actual Payment Received", f"₹{total_payment_received:,.0f}", delta=f"₹{total_payment_received - total_revenue:,.0f}")
-        kpi_col4.metric("Total Expenses", f"₹{total_expenses:,.0f}")
+        # Actual Cash Profit
+        actual_cash_profit = total_collected - total_expenses_cash
+        actual_margin_pct = (actual_cash_profit / total_collected * 100) if total_collected > 0 else 0
+        
+        # Discount Loss (Quoted vs Collected)
+        discount_loss = total_quoted - total_collected
 
-        # === KPI #2: Profit Metrics ===
-        st.divider()
-        st.write("#### 💰 Profit Analysis")
-        profit_col1, profit_col2, profit_col3, profit_col4 = st.columns(4)
-        profit_col1.metric("Estimated Profit", f"₹{net_profit_estimated:,.0f}")
-        profit_col2.metric("Actual Profit (After Discounts)", f"₹{actual_profit:,.0f}", delta=f"₹{actual_profit - net_profit_estimated:,.0f}")
-        profit_col3.metric("Margin %", f"{actual_margin_pct:.1f}%")
-        profit_col4.metric("Discount Loss", f"₹{total_revenue - total_payment_received:,.0f}")
-
-        # === KPI #3: Expense Breakdown ===
-        st.divider()
-        st.write("#### 📈 Expense Breakdown")
-        expense_col1, expense_col2, expense_col3 = st.columns(3)
-        material_pct = (total_material_expense / total_expenses * 100) if total_expenses != 0 else 0
-        labor_pct = (total_labor_expense / total_expenses * 100) if total_expenses != 0 else 0
-        expense_col1.metric("Material Expenses", f"₹{total_material_expense:,.0f}", delta=f"{material_pct:.1f}%")
-        expense_col2.metric("Labor Expenses", f"₹{total_labor_expense:,.0f}", delta=f"{labor_pct:.1f}%")
-        expense_col3.metric("Avg Cost per Project", f"₹{total_expenses / completed_projects:,.0f}" if completed_projects > 0 else "N/A")
-
-        st.divider()
-        st.write("#### 📊 Financial Overview")
-        chart_col1, chart_col2 = st.columns(2)
-
-        # === GRAPH #1: Revenue vs Expenses vs Actual Payment ===
-        with chart_col1:
-            st.subheader("Revenue vs Expenses vs Payment")
-            chart_data_comparison = pd.DataFrame({
-                'Category': ['Grand Total', 'Actual Payment', 'Total Expenses'],
-                'Amount': [float(total_revenue), float(total_payment_received), float(total_expenses)]
+        # --- 2. PROJECT-BASED PROFITABILITY (Dev Branch Logic) ---
+        # This analyzes profitability per project based on ESTIMATED costs vs ACTUAL revenue
+        
+        pl_data = []
+        total_est_cost_project = 0.0
+        total_est_profit_project = 0.0
+        
+        for idx, row in closed_df.iterrows():
+            est = row.get('internal_estimate')
+            actual_rev = float(row.get('final_settlement_amount', 0.0))
+            
+            # Fallback if 0
+            if actual_rev == 0 and est:
+                try:
+                    am_normalized = helpers.normalize_margins(est.get('margins'), settings)
+                    calc = helpers.calculate_estimate_details(est.get('items', []), est.get('days', 1.0), am_normalized, settings)
+                    actual_rev = calc["rounded_grand_total"]
+                except: pass
+            
+            est_cost = 0.0
+            est_profit = 0.0
+            mat_cost = 0.0
+            labor_cost = 0.0
+            
+            if est:
+                try:
+                    am_normalized = helpers.normalize_margins(est.get('margins'), settings)
+                    calc = helpers.calculate_estimate_details(est.get('items', []), est.get('days', 1.0), am_normalized, settings)
+                    
+                    items = est.get('items', [])
+                    mat_cost = sum([float(i.get('Qty',0)) * float(i.get('Base Rate',0)) for i in items])
+                    labor_cost = calc["labor_actual_cost"]
+                    
+                    est_cost = mat_cost + labor_cost
+                    est_profit = actual_rev - est_cost
+                except: pass
+            
+            total_est_cost_project += est_cost
+            total_est_profit_project += est_profit
+            
+            pl_data.append({
+                "Client": row['name'],
+                "Revenue": actual_rev,
+                "Cost": est_cost,
+                "Profit": est_profit,
+                "Material Cost": mat_cost,
+                "Labor Cost": labor_cost,
+                "created_at": row.get('created_at')
             })
-            chart_data_comparison['Amount'] = chart_data_comparison['Amount'].astype(float)
+            
+        pl_df = pd.DataFrame(pl_data)
+
+        # --- DISPLAY METRICS ---
+        
+        st.markdown("### 📊 Executive Summary (Cash Flow)")
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Total Collected", f"₹{total_collected:,.0f}", delta=f"Quoted: ₹{total_quoted:,.0f}")
+        k2.metric("Total Expenses (Cash)", f"₹{total_expenses_cash:,.0f}")
+        k3.metric("Net Cash Profit", f"₹{actual_cash_profit:,.0f}", delta=f"{actual_margin_pct:.1f}% Margin")
+        k4.metric("Revenue Gap (Discounts)", f"₹{discount_loss:,.0f}", delta_color="inverse")
+        
+        st.divider()
+        
+        st.markdown("### 🏗️ Operational Metrics")
+        o1, o2, o3 = st.columns(3)
+        o1.metric("Projects Completed", len(closed_df))
+        o2.metric("Material Expenses (Log)", f"₹{total_material_expense_cash:,.0f}")
+        o3.metric("Labor Expenses (Est)", f"₹{total_labor_expense_cash:,.0f}")
+
+        st.divider()
+
+        # --- CHARTS ---
+        
+        c_chart1, c_chart2 = st.columns(2)
+        
+        # 1. Revenue vs Expenses vs Payment (Main Branch Feature)
+        with c_chart1:
+            st.markdown("#### Revenue vs Expenses vs Payment")
+            chart_data_comparison = pd.DataFrame({
+                'Category': ['Quoted Total', 'Collected', 'Total Expenses'],
+                'Amount': [total_quoted, total_collected, total_expenses_cash]
+            })
             
             comparison_chart = alt.Chart(chart_data_comparison).mark_bar().encode(
-                x=alt.X('Category:N', axis=alt.Axis(title=None, labelAngle=0)),
-                y=alt.Y('Amount:Q', axis=alt.Axis(title="Amount (₹)", format='.0f')),
-                color=alt.Color('Category:N', 
-                    scale=alt.Scale(
-                        domain=['Grand Total', 'Actual Payment', 'Total Expenses'],
-                        range=['#3498db', '#2ecc71', '#e74c3c']
-                    ),
-                    legend=None),
-                tooltip=[
-                    alt.Tooltip('Category:N', title='Category'),
-                    alt.Tooltip('Amount:Q', format=',.0f', title='Amount (₹)')
-                ]
-            ).properties(title='Revenue, Payment & Expenses Comparison', height=400, width=500)
-            
+                x=alt.X('Category:N', axis=alt.Axis(labelAngle=0)),
+                y=alt.Y('Amount:Q', axis=alt.Axis(format='₹,.0f')),
+                color=alt.Color('Category:N', scale=alt.Scale(domain=['Quoted Total', 'Collected', 'Total Expenses'], range=['#3498db', '#2ecc71', '#e74c3c'])),
+                tooltip=['Category', 'Amount']
+            ).properties(height=300)
             st.altair_chart(comparison_chart, use_container_width=True)
 
-        # === GRAPH #2: Cost Split (Material vs Labor) ===
-        with chart_col2:
-            st.subheader("Cost Split Analysis")
-            if total_expenses > 0:
-                chart_data_pie = pd.DataFrame({
-                    'Cost Type': ['Material Cost', 'Labor Cost'],
-                    'Amount': [float(total_material_expense), float(total_labor_expense)]
-                })
-                chart_data_pie['Amount'] = chart_data_pie['Amount'].astype(float)
-                
-                pie_chart = alt.Chart(chart_data_pie).mark_arc(innerRadius=50, cornerRadius=5).encode(
-                    theta=alt.Theta('Amount:Q', stack=True),
-                    color=alt.Color('Cost Type:N', 
-                        scale=alt.Scale(
-                            domain=['Material Cost', 'Labor Cost'],
-                            range=['#F44336', '#FFC107']
-                        ),
-                        legend=alt.Legend(title="Cost Type", orient="bottom")),
-                    order=alt.Order('Amount:Q', sort='descending'),
-                    tooltip=[
-                        alt.Tooltip('Cost Type:N', title='Cost Type'),
-                        alt.Tooltip('Amount:Q', format=',.0f', title='Amount (₹)'),
-                        alt.Tooltip('Amount:Q', format='.1%', title='Percentage')
-                    ]
-                ).properties(title='Material vs Labor Cost Split', height=400, width=500)
-                
-                st.altair_chart(pie_chart, use_container_width=True)
-            else:
-                st.info("No costs recorded yet.")
+        # 2. Cost Split (Main Branch Feature)
+        with c_chart2:
+            st.markdown("#### Global Cost Split")
+            cost_data = pd.DataFrame({
+                'Category': ['Material (Log)', 'Labor (Est)'],
+                'Amount': [total_material_expense_cash, total_labor_expense_cash]
+            })
+            chart_cost = alt.Chart(cost_data).mark_arc(innerRadius=50).encode(
+                theta='Amount',
+                color=alt.Color('Category', scale=alt.Scale(range=['#FF9800', '#9C27B0'])),
+                tooltip=['Category', 'Amount']
+            ).properties(height=300)
+            st.altair_chart(chart_cost, use_container_width=True)
 
         st.divider()
-        st.write("#### 📊 Additional Analytics")
-        analytics_col1, analytics_col2 = st.columns(2)
+        
+        # 3. Monthly Trend (Dev Branch Feature)
+        if not pl_df.empty:
+            st.markdown("### 📅 Monthly Performance")
+            pl_df['created_at'] = pd.to_datetime(pl_df['created_at'])
+            pl_df['Month'] = pl_df['created_at'].dt.strftime('%Y-%m')
+            monthly_data = pl_df.groupby('Month')[['Revenue', 'Profit']].sum().reset_index()
+            
+            chart_monthly = alt.Chart(monthly_data).mark_bar().encode(
+                x='Month',
+                y='Revenue',
+                color=alt.value('#2196F3')
+            ) + alt.Chart(monthly_data).mark_line(color='#FFC107').encode(
+                x='Month',
+                y='Profit'
+            )
+            st.altair_chart(chart_monthly, use_container_width=True)
 
-        # === GRAPH #3: Profit vs Discount Impact ===
-        with analytics_col1:
-            st.subheader("Estimated vs Actual Profit")
-            chart_data_profit = pd.DataFrame({
-                'Status': ['Estimated Profit', 'Actual Profit'],
-                'Amount': [float(net_profit_estimated), float(actual_profit)]
-            })
-            chart_data_profit['Amount'] = chart_data_profit['Amount'].astype(float)
-            
-            profit_chart = alt.Chart(chart_data_profit).mark_bar().encode(
-                x=alt.X('Status:N', axis=alt.Axis(title=None, labelAngle=0)),
-                y=alt.Y('Amount:Q', axis=alt.Axis(title="Profit (₹)", format='.0f')),
-                color=alt.Color('Status:N', 
-                    scale=alt.Scale(
-                        domain=['Estimated Profit', 'Actual Profit'],
-                        range=['#2ecc71', '#3498db']
-                    ),
-                    legend=None),
-                tooltip=[
-                    alt.Tooltip('Status:N', title='Type'),
-                    alt.Tooltip('Amount:Q', format=',.0f', title='Amount (₹)')
-                ]
-            ).properties(title='Estimated vs Actual Profit', height=400, width=500)
-            
-            st.altair_chart(profit_chart, use_container_width=True)
+        # 4. Business Health Table (Main Branch Feature)
+        st.markdown("### 🏥 Business Health Scorecard")
+        health_data = {
+            "Metric": ["Revenue Capture Rate", "Profit Margin", "Cost Efficiency", "Labor Cost %"],
+            "Value": [
+                f"{(total_collected / total_quoted * 100) if total_quoted > 0 else 0:.1f}%",
+                f"{actual_margin_pct:.1f}%",
+                f"{(total_expenses_cash / total_collected * 100) if total_collected > 0 else 0:.1f}%",
+                f"{(total_labor_expense_cash / total_expenses_cash * 100) if total_expenses_cash > 0 else 0:.1f}%"
+            ],
+            "Target": ["> 95%", "> 20%", "< 70%", "< 30%"]
+        }
+        st.dataframe(pd.DataFrame(health_data), use_container_width=True, hide_index=True)
 
-        # === GRAPH #4: Margin Trend ===
-        with analytics_col2:
-            st.subheader("Business Health Summary")
-            
-            health_data = {
-                "Metric": [
-                    "Revenue Capture Rate",
-                    "Profit Margin",
-                    "Cost Efficiency",
-                    "Labor Cost %"
-                ],
-                "Value": [
-                    f"{(total_payment_received / total_revenue * 100) if total_revenue > 0 else 0:.1f}%",
-                    f"{actual_margin_pct:.1f}%",
-                    f"{(total_expenses / total_revenue * 100) if total_expenses > 0 else 0:.1f}%",
-                    f"{(total_labor_expense / total_expenses * 100) if total_expenses > 0 else 0:.1f}%"
-                ]
-            }
-            
-            health_df = pd.DataFrame(health_data)
-            st.dataframe(health_df, use_container_width=True, hide_index=True)
-            
-            st.write("**Interpretation:**")
-            st.text(f"✓ You capture {(total_payment_received / total_revenue * 100) if total_revenue > 0 else 0:.1f}% of quoted amount")
-            st.text(f"✓ Operating margin: {actual_margin_pct:.1f}%")
-            st.text(f"✓ {completed_projects} projects completed")
+    else:
+        st.info("No data available.")
 
-    except Exception as e:
-        st.error(f"Error during P&L calculation: {e}")
-        import traceback
-        st.error("Debug Info: " + traceback.format_exc())
+
+# --- TAB 4: SETTINGS ---
+with tab4:
+    st.subheader("⚙️ Global Settings")
+    
+    try:
+        sett = get_settings()
+    except: sett = {}
+    
+    with st.form("settings_form"):
+        c1, c2, c3 = st.columns(3)
+        pm = c1.number_input("Default Parts Margin (%)", value=int(sett.get('part_margin', 20)))
+        lm = c2.number_input("Default Labor Margin (%)", value=int(sett.get('labor_margin', 20)))
+        em = c3.number_input("Default Extra Margin (%)", value=int(sett.get('extra_margin', 10)))
+        
+        dlc = st.number_input("Daily Labor Cost (₹)", value=float(sett.get('daily_labor_cost', 1000.0)))
+        
+        if st.form_submit_button("💾 Save Settings"):
+            try:
+                # Upsert settings (assuming id=1)
+                supabase.table("settings").upsert({"id": 1, "part_margin": pm, "labor_margin": lm, "extra_margin": em, "daily_labor_cost": dlc}).execute()
+                st.success("Settings Saved!")
+                get_settings.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+    st.divider()
+    st.subheader("🧮 Advance Payment Calculator")
+    
+    ac1, ac2 = st.columns([1, 2])
+    with ac1:
+        total_est_val = st.number_input("Total Estimate Value (₹)", min_value=0.0, value=100000.0, step=1000.0)
+        adv_percent = st.slider("Advance Percentage", 0, 100, 60)
+    
+    with ac2:
+        adv_amt = total_est_val * (adv_percent / 100)
+        st.metric("Advance Required", f"₹{adv_amt:,.0f}")
+        st.info(f"Formula: Total Value * {adv_percent}%")

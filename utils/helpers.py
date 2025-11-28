@@ -2,6 +2,7 @@ import pandas as pd
 import math
 from fpdf import FPDF
 from datetime import datetime
+from io import BytesIO
 
 # ---------------------------
 # GLOBAL CONSTANTS
@@ -30,8 +31,9 @@ class PDFGenerator:
         self.pdf.cell(0, 8, f"Date: {datetime.now().strftime('%d-%b-%Y')}", ln=True)
         self.pdf.ln(5)
 
-    def generate_client_invoice(self, client_name, items, labor_days, labor_total, grand_total, advance_amount):
-        self._add_header(f"Estimate For: {client_name}")
+    def generate_client_invoice(self, client_name, items, labor_days, labor_total, grand_total, advance_amount, is_final=False):
+        title = f"INVOICE For: {client_name}" if is_final else f"Estimate For: {client_name}"
+        self._add_header(title)
         
         self.pdf.set_fill_color(240, 240, 240)
         self.pdf.set_font("Arial", 'B', 10)
@@ -57,13 +59,23 @@ class PDFGenerator:
         
         self.pdf.ln(10)
         self.pdf.set_font("Arial", 'B', 10)
-        self.pdf.multi_cell(0, 5, f"Advance Payment Required: Rs. {advance_amount:,.2f}")
-        self.pdf.ln(5)
-        self.pdf.set_font("Arial", 'I', 8)
-        self.pdf.set_text_color(100, 100, 100)
-        self.pdf.multi_cell(0, 5, "NOTE: This is an estimate only. Final rates may vary based on actual site conditions and market fluctuations. Valid for 7 days.")
         
-        return self.pdf.output(dest='S').encode('latin-1')
+        if is_final:
+            self.pdf.multi_cell(0, 5, f"Total Amount: Rs. {grand_total:,.2f}")
+            self.pdf.ln(5)
+            self.pdf.set_font("Arial", 'I', 10)
+            self.pdf.multi_cell(0, 5, "Thank you for your business!")
+        else:
+            self.pdf.multi_cell(0, 5, f"Advance Payment Required: Rs. {advance_amount:,.2f}")
+            self.pdf.ln(5)
+            self.pdf.set_font("Arial", 'I', 8)
+            self.pdf.set_text_color(100, 100, 100)
+            self.pdf.multi_cell(0, 5, "NOTE: This is an estimate only. Final rates may vary based on actual site conditions and market fluctuations. Valid for 7 days.")
+        
+        pdf_output = BytesIO()
+        pdf_string = self.pdf.output(dest='S')
+        pdf_output.write(pdf_string.encode('latin-1'))
+        return pdf_output.getvalue()
 
     def generate_internal_report(self, client_name, items, labor_days, labor_cost, labor_charged, grand_total, total_profit):
         self._add_header(f"INTERNAL PROFIT REPORT (CONFIDENTIAL) - {client_name}")
@@ -104,7 +116,10 @@ class PDFGenerator:
         self.pdf.cell(120, 10, "NET PROFIT:", 1, 0, 'R')
         self.pdf.set_text_color(0, 150, 0); self.pdf.cell(70, 10, f"Rs. {total_profit:,.2f}", 1, 1, 'R')
 
-        return self.pdf.output(dest='S').encode('latin-1')
+        pdf_output = BytesIO()
+        pdf_string = self.pdf.output(dest='S')
+        pdf_output.write(pdf_string.encode('latin-1'))
+        return pdf_output.getvalue()
 
 def create_pdf(*args, **kwargs):
     pdf_gen = PDFGenerator()
