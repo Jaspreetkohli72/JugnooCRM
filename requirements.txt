@@ -7,3 +7,4 @@ fpdf
 streamlit-js-eval
 extra-streamlit-components
 passlib
+plotly

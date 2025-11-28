@@ -273,6 +273,17 @@ This table maps critical UI fields to their underlying database columns, providi
 | **Stock** | `stock_quantity` | `NUMERIC` | Current available quantity. |
 | **Unit** | `unit` | `TEXT` | `pcs`, `m`, `ft`, `cm`, `in`. |
 
+**Table: `supplier_purchases`**
+
+| Application Field (UI Label) | PostgreSQL Column | Data Type | Constraint / Usage |
+| :--- | :--- | :--- | :--- |
+| **Supplier** | `supplier_id` | `BIGINT` | FK to `suppliers.id`. |
+| **Item Name** | `item_name` | `TEXT` | Name of item purchased. |
+| **Quantity** | `quantity` | `NUMERIC` | Amount purchased. |
+| **Cost** | `cost` | `NUMERIC` | Total cost of purchase. |
+| **Date** | `purchase_date` | `DATE` | Date of transaction. |
+| **Notes** | `notes` | `TEXT` | Optional remarks. |
+
 ### 6.2 Streamlit Session State Lifecycle
 
 Streamlit's state management is crucial for the "Manage Estimate" feature, which requires temporary persistence before saving to the DB.

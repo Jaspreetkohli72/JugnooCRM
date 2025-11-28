@@ -10,6 +10,7 @@ import math
 
 from streamlit_js_eval import get_geolocation
 import altair as alt
+import plotly.graph_objects as go
 import extra_streamlit_components as stx
 
 # ---------------------------
@@ -22,6 +23,16 @@ if st.session_state.get('cache_fix_needed', True):
     st.cache_resource.clear()
     st.session_state.cache_fix_needed = False
 # === END OF CRITICAL CACHE FIX ===
+
+# --- HIDE STREAMLIT ANCHORS ---
+st.markdown("""
+    <style>
+    /* Hide the link icon next to headers */
+    [data-testid="stHeader"] a {
+        display: none;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 # Initialize Session State
 if 'logged_in' not in st.session_state:
@@ -120,7 +131,7 @@ def check_login(username, password):
         return False
 
 def login_section():
-    st.title("🔐 Jugnoo")
+    st.title("🔐 Jugnoo CRM")
     time.sleep(0.1)
     
     # Check if user already logged in via cookie
@@ -510,17 +521,24 @@ with tab3:
                 st.rerun()
 
             # --- Stock Check Alert System ---
-            missing_items = []
+            missing_items_list = []
+            restock_data = []
+            
             for index, row in edf.iterrows():
                 item_name = row.get('Item')
                 estimated_qty = float(row.get('Qty', 0))
-                available_stock = float(stock_map.get(item_name, 0.0)) # Ensure available_stock is float for comparison
+                available_stock = float(stock_map.get(item_name, 0.0))
                 
                 if estimated_qty > available_stock:
-                    missing_items.append(f"{item_name}: Need {int(estimated_qty)}, Have {int(available_stock)}")
+                    deficit = estimated_qty - available_stock
+                    missing_items_list.append(f"{item_name}: Need {int(estimated_qty)}, Have {int(available_stock)}")
+                    restock_data.append({"item_name": item_name, "quantity": deficit, "cost": 0.0, "notes": "Auto-restock from Estimator"})
             
-            if missing_items:
-                st.error("⚠️ **Low Stock Warning:** You do not have enough inventory for: " + ", ".join(missing_items) + ". Please visit Suppliers tab to restock.")
+            if missing_items_list:
+                st.error("⚠️ **Low Stock Warning:** You do not have enough inventory for: " + ", ".join(missing_items_list) + ".")
+                if st.button("🚀 Place Order for Missing Items", key="auto_restock_btn", type="primary"):
+                    st.session_state['restock_queue'] = restock_data
+                    st.toast("Items added to Restock Queue! Go to Suppliers tab.", icon="📦")
             
             # --- End Stock Check Alert System ---
 
@@ -625,7 +643,52 @@ with tab_inv:
 
 # --- TAB 5: SUPPLIERS ---
 with tab5:
-    st.subheader("Supplier Management")
+    st.subheader("🚚 Supplier Management")
+    
+    # Restock Queue Section
+    if st.session_state.get('restock_queue'):
+        st.info("📦 **Pending Restock Order**")
+        with st.expander("Review & Place Order", expanded=True):
+            r_queue = st.session_state['restock_queue']
+            
+            # Supplier Selection
+            sup_opts = {s['name']: s['id'] for s in get_suppliers().data} if get_suppliers().data else {}
+            sel_sup_name = st.selectbox("Select Supplier for Batch Order", list(sup_opts.keys()), key="restock_sup")
+            
+            # Editable List
+            r_df = pd.DataFrame(r_queue)
+            edited_r_df = st.data_editor(r_df, num_rows="dynamic", use_container_width=True, key="restock_editor", column_config={
+                "item_name": "Item",
+                "quantity": st.column_config.NumberColumn("Qty Needed", step=1),
+                "cost": st.column_config.NumberColumn("Est. Cost (₹)", step=100),
+                "notes": "Notes"
+            })
+            
+            if st.button("✅ Confirm Order & Log Purchase", type="primary"):
+                if sel_sup_name:
+                    sup_id = sup_opts[sel_sup_name]
+                    try:
+                        # Batch insert
+                        to_insert = []
+                        for _, row in edited_r_df.iterrows():
+                            to_insert.append({
+                                "supplier_id": sup_id,
+                                "item_name": row['item_name'],
+                                "quantity": row['quantity'],
+                                "cost": row['cost'],
+                                "purchase_date": datetime.now().isoformat(),
+                                "notes": row.get('notes', '')
+                            })
+                        
+                        if to_insert:
+                            supabase.table("supplier_purchases").insert(to_insert).execute()
+                            st.success("Orders Placed Successfully!")
+                            del st.session_state['restock_queue']
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+                else:
+                    st.error("Please select a supplier.")
     
     # 1. Record Purchase
     with st.expander("📝 Record Purchase", expanded=True):
@@ -670,11 +733,56 @@ with tab5:
 
     st.divider()
     
-    # 2. Supplier Directory
+    # 2. Supplier Directory & History
     st.markdown("### 📒 Supplier Directory")
     if sup_resp and sup_resp.data:
-        sdf = pd.DataFrame(sup_resp.data)
-        st.dataframe(sdf[['name', 'contact_person', 'phone']], use_container_width=True, hide_index=True)
+        for sup in sup_resp.data:
+            with st.expander(f"{sup['name']} ({sup.get('contact_person', '')})"):
+                st.write(f"**Phone:** {sup.get('phone', 'N/A')}")
+                
+                # --- Purchase History Section ---
+                st.divider()
+                st.markdown("#### 📜 Purchase History")
+                
+                # Fetch history
+                try:
+                    hist_res = supabase.table("supplier_purchases").select("*").eq("supplier_id", sup['id']).order("purchase_date", desc=True).execute()
+                    hist_data = hist_res.data if hist_res else []
+                except: hist_data = []
+                
+                if hist_data:
+                    hdf = pd.DataFrame(hist_data)
+                    # Handle cases where columns might be missing if schema changed
+                    if 'quantity' not in hdf.columns: hdf['quantity'] = 0
+                    if 'cost' not in hdf.columns: 
+                        hdf['cost'] = hdf['amount'] if 'amount' in hdf.columns else 0
+                    
+                    st.dataframe(hdf[['purchase_date', 'item_name', 'quantity', 'cost', 'notes']], use_container_width=True, hide_index=True)
+                else:
+                    st.info("No purchase history found.")
+                    
+                with st.expander("➕ Log New Purchase"):
+                    with st.form(f"add_hist_{sup['id']}"):
+                        h_item = st.text_input("Item Name")
+                        h_qty = st.number_input("Quantity", min_value=0.0, step=1.0)
+                        h_amt = st.number_input("Total Cost (₹)", min_value=0.0, step=100.0)
+                        h_date = st.date_input("Date", value=datetime.now())
+                        h_note = st.text_area("Notes")
+                        
+                        if st.form_submit_button("Log Purchase"):
+                            try:
+                                supabase.table("supplier_purchases").insert({
+                                    "supplier_id": sup['id'],
+                                    "item_name": h_item,
+                                    "quantity": h_qty,
+                                    "cost": h_amt,
+                                    "purchase_date": h_date.isoformat(),
+                                    "notes": h_note
+                                }).execute()
+                                st.success("Purchase Logged!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error: {e}")
     else:
         st.info("No suppliers found.")
 
@@ -689,13 +797,15 @@ with tab6:
     with st.spinner("Loading Financial Data..."):
         try:
             cl_resp = get_clients()
-            # Fetch Purchase Log for Global Expense Calculation (Main Branch Feature)
-            purchase_log_resp = supabase.table("purchase_log").select("total_cost").execute()
+            # Fetch Supplier Purchases for Global Expense Calculation (New Source)
+            sp_resp = supabase.table("supplier_purchases").select("cost, purchase_date").execute()
+            # Keep legacy purchase_log just in case, or replace? Assuming replacement as per recent feature.
+            # purchase_log_resp = supabase.table("purchase_log").select("total_cost").execute() 
             settings = get_settings()
         except Exception as e:
             st.error(f"Data Fetch Error: {e}")
             cl_resp = None
-            purchase_log_resp = None
+            sp_resp = None
             settings = {}
 
     if cl_resp and cl_resp.data:
@@ -728,9 +838,9 @@ with tab6:
                  except: pass
 
         # Total Expenses (Global)
-        # Material Expense from Purchase Log
-        purchase_log_data = purchase_log_resp.data if purchase_log_resp and purchase_log_resp.data else []
-        total_material_expense_cash = sum(float(log.get('total_cost', 0.0)) for log in purchase_log_data if log.get('total_cost'))
+        # Material Expense from Supplier Purchases
+        sp_data = sp_resp.data if sp_resp and sp_resp.data else []
+        total_material_expense_cash = sum(float(item.get('cost', 0.0)) for item in sp_data if item.get('cost'))
         
         # Labor Expense (Sum of labor cost from Closed projects)
         # We assume labor is paid when project is closed/done.
@@ -811,7 +921,7 @@ with tab6:
         k1.metric("Total Collected", f"₹{total_collected:,.0f}", delta=f"Quoted: ₹{total_quoted:,.0f}")
         k2.metric("Total Expenses (Cash)", f"₹{total_expenses_cash:,.0f}")
         k3.metric("Net Cash Profit", f"₹{actual_cash_profit:,.0f}", delta=f"{actual_margin_pct:.1f}% Margin")
-        k4.metric("Revenue Gap (Discounts)", f"₹{discount_loss:,.0f}", delta_color="inverse")
+        k4.metric("Outstanding Amount", f"₹{discount_loss:,.0f}", delta_color="inverse")
         
         st.divider()
         
@@ -825,66 +935,235 @@ with tab6:
 
         # --- CHARTS ---
         
+        # Pre-calculate values for charts to avoid scope issues
+        def safe_float(val):
+            try:
+                f = float(val)
+                if pd.isna(f): return 0.0
+                return f
+            except:
+                return 0.0
+
+        val_quoted = safe_float(total_quoted)
+        val_collected = safe_float(total_collected)
+        val_expenses = safe_float(total_expenses_cash)
+        val_mat = safe_float(total_material_expense_cash)
+        val_lab = safe_float(total_labor_expense_cash)
+        
         c_chart1, c_chart2 = st.columns(2)
         
         # 1. Revenue vs Expenses vs Payment (Main Branch Feature)
         with c_chart1:
             st.markdown("#### Revenue vs Expenses vs Payment")
+            
             chart_data_comparison = pd.DataFrame({
                 'Category': ['Quoted Total', 'Collected', 'Total Expenses'],
-                'Amount': [total_quoted, total_collected, total_expenses_cash]
+                'Amount': [val_quoted, val_collected, val_expenses]
             })
             
-            comparison_chart = alt.Chart(chart_data_comparison).mark_bar().encode(
-                x=alt.X('Category:N', axis=alt.Axis(labelAngle=0)),
-                y=alt.Y('Amount:Q', axis=alt.Axis(format='₹,.0f')),
-                color=alt.Color('Category:N', scale=alt.Scale(domain=['Quoted Total', 'Collected', 'Total Expenses'], range=['#3498db', '#2ecc71', '#e74c3c'])),
-                tooltip=['Category', 'Amount']
-            ).properties(height=300)
-            st.altair_chart(comparison_chart, use_container_width=True)
+            if val_quoted == 0 and val_collected == 0 and val_expenses == 0:
+                st.warning("No financial data to display.")
+            else:
+                # Plotly Bar Chart
+                fig_comp = go.Figure(data=[
+                    go.Bar(name='Quoted Total', x=['Quoted Total'], y=[val_quoted], marker_color='#3498db'),
+                    go.Bar(name='Collected', x=['Collected'], y=[val_collected], marker_color='#2ecc71'),
+                    go.Bar(name='Total Expenses', x=['Total Expenses'], y=[val_expenses], marker_color='#e74c3c')
+                ])
+                
+                fig_comp.update_layout(
+                    margin=dict(t=0, b=0, l=0, r=0),
+                    height=300,
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    showlegend=True,
+                    yaxis=dict(title="Amount (₹)"),
+                    barmode='group'
+                )
+                
+                st.plotly_chart(fig_comp, use_container_width=True)
 
         # 2. Cost Split (Main Branch Feature)
         with c_chart2:
             st.markdown("#### Global Cost Split")
-            cost_data = pd.DataFrame({
-                'Category': ['Material (Log)', 'Labor (Est)'],
-                'Amount': [total_material_expense_cash, total_labor_expense_cash]
-            })
-            chart_cost = alt.Chart(cost_data).mark_arc(innerRadius=50).encode(
-                theta='Amount',
-                color=alt.Color('Category', scale=alt.Scale(range=['#FF9800', '#9C27B0'])),
-                tooltip=['Category', 'Amount']
-            ).properties(height=300)
-            st.altair_chart(chart_cost, use_container_width=True)
+            
+            if val_mat == 0 and val_lab == 0:
+                st.warning("No expense data.")
+            else:
+                # Plotly Donut Chart
+                fig_cost = go.Figure(data=[go.Pie(
+                    labels=['Material (Log)', 'Labor (Est)'],
+                    values=[val_mat, val_lab],
+                    hole=.4,
+                    marker_colors=['#FF9800', '#9C27B0']
+                )])
+                
+                fig_cost.update_layout(
+                    margin=dict(t=0, b=0, l=0, r=0),
+                    height=300,
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    showlegend=True,
+                    legend=dict(title="Category", orientation="v", yanchor="middle", y=0.5, xanchor="left", x=1.05)
+                )
+                
+                st.plotly_chart(fig_cost, use_container_width=True)
 
         st.divider()
         
-        # 3. Monthly Trend (Dev Branch Feature)
-        if not pl_df.empty:
-            st.markdown("### 📅 Monthly Performance")
-            pl_df['created_at'] = pd.to_datetime(pl_df['created_at'])
-            pl_df['Month'] = pl_df['created_at'].dt.strftime('%Y-%m')
-            monthly_data = pl_df.groupby('Month')[['Revenue', 'Profit']].sum().reset_index()
-            
-            chart_monthly = alt.Chart(monthly_data).mark_bar().encode(
-                x='Month',
-                y='Revenue',
-                color=alt.value('#2196F3')
-            ) + alt.Chart(monthly_data).mark_line(color='#FFC107').encode(
-                x='Month',
-                y='Profit'
-            )
-            st.altair_chart(chart_monthly, use_container_width=True)
+        # New Charts Row
+        nc1, nc2 = st.columns(2)
+        
+        # 3. Client Profitability Scatter (Restored)
+        with nc1:
+            st.markdown("#### Client Profitability Matrix")
+            if not pl_df.empty:
+                chart_scatter = alt.Chart(pl_df).mark_circle(size=60).encode(
+                    x=alt.X('Revenue', axis=alt.Axis(title='Revenue (₹)')),
+                    y=alt.Y('Profit', axis=alt.Axis(title='Profit (₹)')),
+                    color=alt.Color('Profit', scale=alt.Scale(scheme='redyellowgreen')),
+                    tooltip=['Client', alt.Tooltip('Revenue', format='₹,.0f'), alt.Tooltip('Profit', format='₹,.0f')]
+                ).properties(height=300).interactive()
+                st.altair_chart(chart_scatter, use_container_width=True)
+            else:
+                st.info("No data for scatter plot.")
 
-        # 4. Business Health Table (Main Branch Feature)
+        # 4. Monthly Trend Combo (Restored)
+        with nc2:
+            if not pl_df.empty:
+                st.markdown("#### 📅 Monthly Performance (Combo)")
+                # Ensure Month is present
+                if 'Month' not in pl_df.columns:
+                     pl_df['created_at'] = pd.to_datetime(pl_df['created_at'])
+                     pl_df['Month'] = pl_df['created_at'].dt.strftime('%Y-%m')
+                
+                monthly_data = pl_df.groupby('Month')[['Revenue', 'Profit']].sum().reset_index()
+                
+                base = alt.Chart(monthly_data).encode(x='Month')
+                bar = base.mark_bar(opacity=0.7).encode(y='Revenue', color=alt.value('#2196F3'))
+                line = base.mark_line(color='#FFC107', strokeWidth=3).encode(y='Profit')
+                
+                combo = (bar + line).properties(height=300).resolve_scale(y='shared')
+                st.altair_chart(combo, use_container_width=True)
+            else:
+                st.info("No data for monthly trend.")
+        
+        st.divider()
+        
+        # New Row for Line Charts
+        nl1, nl2 = st.columns(2)
+        
+        # 5. Client Profitability (Line Chart)
+        with nl1:
+            st.markdown("#### Client Profitability")
+            if not pl_df.empty:
+                # Sort by date to make the line chart meaningful (Profit over time/projects)
+                pl_df_sorted = pl_df.sort_values('created_at')
+                
+                chart_client_line = alt.Chart(pl_df_sorted).mark_line(point=True).encode(
+                    x=alt.X('Client', sort=None, axis=alt.Axis(labelAngle=-45)), # Preserving sorted order
+                    y=alt.Y('Profit', axis=alt.Axis(title='Profit (₹)')),
+                    tooltip=['Client', 'Revenue', 'Profit', 'created_at']
+                ).properties(height=300).interactive()
+                st.altair_chart(chart_client_line, use_container_width=True)
+            else:
+                st.info("No data for client profitability.")
+
+        # 6. Monthly Trend (Line Chart)
+        with nl2:
+            if not pl_df.empty:
+                st.markdown("#### 📅 Monthly Performance Trend")
+                if 'Month' not in pl_df.columns:
+                     pl_df['created_at'] = pd.to_datetime(pl_df['created_at'])
+                     pl_df['Month'] = pl_df['created_at'].dt.strftime('%Y-%m')
+                
+                monthly_data = pl_df.groupby('Month')[['Revenue', 'Profit']].sum().reset_index()
+                
+                chart_monthly_line = alt.Chart(monthly_data).mark_line(point=True).encode(
+                    x='Month',
+                    y=alt.Y('Revenue', axis=alt.Axis(title='Amount (₹)')),
+                    color=alt.value('#2196F3'),
+                    tooltip=['Month', 'Revenue']
+                ) + alt.Chart(monthly_data).mark_line(point=True, strokeDash=[5,5]).encode(
+                    x='Month',
+                    y='Profit',
+                    color=alt.value('#FFC107'),
+                    tooltip=['Month', 'Profit']
+                )
+                
+                st.altair_chart(chart_monthly_line, use_container_width=True)
+            else:
+                st.info("No data for monthly trend.")
+
+        # 4. Business Health Scorecard (Radar Chart)
         st.markdown("### 🏥 Business Health Scorecard")
+        
+        # Calculate metrics
+        rev_capture = (total_collected / total_quoted * 100) if total_quoted > 0 else 0
+        profit_margin = actual_margin_pct
+        cost_eff = (total_expenses_cash / total_collected * 100) if total_collected > 0 else 0
+        labor_pct = (total_labor_expense_cash / total_expenses_cash * 100) if total_expenses_cash > 0 else 0
+        
+        # Radar Chart
+        categories = ['Revenue Capture', 'Profit Margin', 'Cost Efficiency', 'Labor Cost %']
+        
+        # Normalize/Scale values for the chart (0-100 scale)
+        # Cost Efficiency & Labor Cost: Lower is better, so we might want to invert them for "Health" score?
+        # Or just plot raw %? User asked for "appropriate visual representation".
+        # Standard radar charts usually have "outward is better".
+        # Let's plot raw percentages for now but maybe add a "Target" series?
+        
+        fig = go.Figure()
+
+        fig.add_trace(go.Scatterpolar(
+            r=[rev_capture, profit_margin, cost_eff, labor_pct],
+            theta=categories,
+            fill='toself',
+            name='Current Performance',
+            line_color='#2196F3'
+        ))
+        
+        # Add Target Series (Ideal values)
+        # Targets: >95, >20, <70, <30
+        # For visualization, let's just show the current polygon.
+        
+        fig.update_layout(
+            polar=dict(
+                bgcolor='#1E1E1E',
+                radialaxis=dict(
+                    visible=True,
+                    range=[0, 100],
+                    gridcolor='#444',
+                    linecolor='#444',
+                    tickfont=dict(color='#ccc')
+                ),
+                angularaxis=dict(
+                    gridcolor='#444',
+                    linecolor='#444',
+                    tickfont=dict(color='#ccc')
+                )
+            ),
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            font=dict(color='white'),
+            showlegend=True,
+            legend=dict(font=dict(color='white')),
+            height=400,
+            margin=dict(l=40, r=40, t=40, b=40)
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.divider()
+        
+        # Table View (Restored)
         health_data = {
             "Metric": ["Revenue Capture Rate", "Profit Margin", "Cost Efficiency", "Labor Cost %"],
             "Value": [
-                f"{(total_collected / total_quoted * 100) if total_quoted > 0 else 0:.1f}%",
-                f"{actual_margin_pct:.1f}%",
-                f"{(total_expenses_cash / total_collected * 100) if total_collected > 0 else 0:.1f}%",
-                f"{(total_labor_expense_cash / total_expenses_cash * 100) if total_expenses_cash > 0 else 0:.1f}%"
+                f"{rev_capture:.1f}%",
+                f"{profit_margin:.1f}%",
+                f"{cost_eff:.1f}%",
+                f"{labor_pct:.1f}%"
             ],
             "Target": ["> 95%", "> 20%", "< 70%", "< 30%"]
         }
