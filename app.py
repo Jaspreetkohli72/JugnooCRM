@@ -192,7 +192,7 @@ with tab1:
                             st.write("**Edit Details**")
                             with st.form(f"edit_details_{client['id']}"):
                                 nn = st.text_input("Name", value=client['name'])
-                                np = st.text_input("Phone", value=client.get('phone', ''))
+                                np = st.text_input("Phone", value=client.get('phone', ''), max_chars=15, help="Enter digits only")
                                 na = st.text_area("Address", value=client.get('address', ''))
                                 ml = st.text_input("Maps Link", value=client.get('location', ''))
                                 
@@ -200,13 +200,16 @@ with tab1:
                                     st.link_button("📍 Open Location", url=client['location'], use_container_width=True)
 
                                 if st.form_submit_button("💾 Save Changes"):
-                                    try:
-                                        supabase.table("clients").update({"name": nn, "phone": np, "address": na, "location": ml}).eq("id", client['id']).execute()
-                                        st.success("Saved!")
-                                        get_clients.clear()
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Error: {e}")
+                                    if np and not np.replace("+", "").replace("-", "").replace(" ", "").isdigit():
+                                        st.error("Phone number must contain only digits, spaces, +, or -.")
+                                    else:
+                                        try:
+                                            supabase.table("clients").update({"name": nn, "phone": np, "address": na, "location": ml}).eq("id", client['id']).execute()
+                                            st.success("Saved!")
+                                            get_clients.clear()
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Error: {e}")
                         
                         with c2:
                             st.write("**Project Status**")
@@ -373,7 +376,7 @@ with tab2:
     
     with st.form("new_client"):
         c1, c2 = st.columns(2)
-        nm, ph = c1.text_input("Client Name"), c2.text_input("Phone")
+        nm, ph = c1.text_input("Client Name"), c2.text_input("Phone", max_chars=15, help="Enter digits only")
         ad = st.text_area("Address")
         maps_link_new_client_key = "loc_in_new_client"
         if maps_link_new_client_key not in st.session_state:
@@ -382,15 +385,18 @@ with tab2:
         ml_new_client = st.text_input("Google Maps Link", key=maps_link_new_client_key)
         
         if st.form_submit_button("Create Client", type="primary"):
-            try:
-                res = supabase.table("clients").insert({"name": nm, "phone": ph, "address": ad, "location": ml_new_client, "status": "Estimate Given", "created_at": datetime.now().isoformat()}).execute()
-                if res and res.data: 
-                    st.success(f"Client {nm} Added!")
-                    get_clients.clear()
-                    st.rerun()
-                else: st.error("Save Failed.")
-            except Exception as e:
-                st.error(f"Database Error: {e}")
+            if ph and not ph.replace("+", "").replace("-", "").replace(" ", "").isdigit():
+                st.error("Phone number must contain only digits, spaces, +, or -.")
+            else:
+                try:
+                    res = supabase.table("clients").insert({"name": nm, "phone": ph, "address": ad, "location": ml_new_client, "status": "Estimate Given", "created_at": datetime.now().isoformat()}).execute()
+                    if res and res.data: 
+                        st.success(f"Client {nm} Added!")
+                        get_clients.clear()
+                        st.rerun()
+                    else: st.error("Save Failed.")
+                except Exception as e:
+                    st.error(f"Database Error: {e}")
 
 # --- TAB 3: ESTIMATOR ---
 with tab3:
