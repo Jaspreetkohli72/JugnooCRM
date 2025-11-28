@@ -42,7 +42,15 @@ The core tool for generating quotes.
 
 ### Tab 6: Financials (P&L)
 *   **Business Health**: View Total Collected vs. Total Expenses.
-*   **Project Analysis**: Detailed breakdown of profit per closed project.
+*   **Outstanding Amount**: Tracks the gap between quoted and collected amounts.
+*   **Visual Analysis**: 7 Distinct Charts:
+    1.  **Revenue vs Expenses vs Payment** (Bar - Plotly)
+    2.  **Global Cost Split** (Pie - Plotly)
+    3.  **Client Profitability Matrix** (Scatter - Altair)
+    4.  **Monthly Performance** (Combo Bar+Line - Altair)
+    5.  **Client Profitability** (Line - Altair)
+    6.  **Monthly Performance Trend** (Line - Altair)
+    7.  **Business Health Scorecard** (Radar - Plotly)
 
 ### Tab 7: Settings
 *   **Global Defaults**: Set standard margins for Parts, Labor, and Extra overheads.
@@ -144,6 +152,7 @@ The application relies on a specific set of libraries defined in `requirements.t
 | `extra-streamlit-components` | Cookie Management | Manages persistent authentication cookies (`CookieManager`). |
 | `streamlit-js-eval` | Geolocation | Bridges Python and JS to fetch browser GPS coordinates. |
 | `altair` | Data Visualization | Renders P&L charts (Revenue vs Expenses). |
+| `plotly` | Data Visualization | Renders complex P&L charts (Pie, Radar) for better interactivity. |
 
 **Global Constants (`utils/helpers.py`)**
 To prevent "magic numbers" and ensure consistency, the following constants are defined:

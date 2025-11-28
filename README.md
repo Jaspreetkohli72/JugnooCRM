@@ -27,7 +27,7 @@ The app follows the natural flow of your business:
 *   **Safety Check**: The app watches your stock. If you try to quote for 10 items but only have 5, it gives you a **Low Stock Warning** immediately.
 
 ### 2. Financial Controls
-*   **P&L (Profit & Loss)**: This tab acts as your business health monitor. It clearly shows **Money Billed vs. Money Spent**, giving you a real-time view of your Net Cash Profit.
+*   **P&L (Profit & Loss)**: This tab acts as your business health monitor. It features **7 interactive charts** (including Bar, Pie, Scatter, Line, and Radar charts) to visualize Revenue, Expenses, Client Profitability, and Business Health. It also tracks your **Outstanding Amount** and Net Cash Profit in real-time.
 *   **Advance Calculation**: No more guessing how much advance to ask for. The built-in calculator automatically figures out the minimum advance needed to cover your material costs plus a 10% profit buffer.
 
 ### 3. Inventory & Purchasing
