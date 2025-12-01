@@ -1,6 +1,6 @@
 # 📘 JugnooCRM: Comprehensive System Documentation
 
-**Version:** 2.0.0 (Unified Master)
+**Version:** 2.0.1 (Unified Master)
 **Scope:** User Guide (L3) & System Architecture (L4)
 
 ---
@@ -27,26 +27,32 @@ The command center of the application.
 ### Tab 2: New Client
 *   **Geolocation**: Use the "Get Location" button to auto-fetch GPS coordinates.
 *   **Validation**: Phone numbers are strictly validated (digits, spaces, +, - only).
+*   **Required Fields**: The system enforces mandatory entry for Client Name, Phone Number, and Address. Incomplete forms cannot be submitted.
 
 ### Tab 3: Estimator Engine
 The core tool for generating quotes.
 *   **Custom Margins**: Override global default margins for specific clients.
 *   **Real-time Calculation**: Costs, selling prices, and profits update instantly as you add items.
 *   **Stock Warnings**: Alerts you if the estimated quantity exceeds available inventory.
+*   **Auto-Restock**: If stock is insufficient, a "Place Order for Missing Items" button appears, adding the deficit to the Restock Queue in the Suppliers tab.
 *   **PDF Generation**: One-click generation of "Client Invoice" (clean) or "Internal Report" (detailed).
 
 ### Tab 4: Inventory Management
 *   **Live Editor**: Update stock levels or base rates directly in the table.
 *   **Overview Metrics**: "Total Items", "Total Inventory Value", and "Low Stock" alerts.
 *   **Unit Support**: Supports `pcs`, `m`, `ft`, `cm`, `in` with auto-conversion.
-*   **Stock Enforcement**: Strict integer enforcement for `pcs` items.
+*   **Stock Enforcement**: Strict integer enforcement for `pcs` items (e.g., you cannot have 1.5 pcs). Other units allow decimal precision.
+*   **Data Integrity**: Specific handling for complex item names (e.g., "128 GB SATA SSD") ensures that unit parsing logic remains robust and doesn't accidentally truncate item descriptions.
 
 ### Tab 5: Suppliers & Purchasing
 *   **Purchase Log**: Record new stock purchases.
+*   **Restock Queue**: A holding area for items flagged as "Low Stock" from the Estimator. Allows batch ordering from suppliers.
 *   **Overview Metrics**: "Total Suppliers", "Total Spend", and "Top Suppliers" by spend.
 *   **Auto-Update**: Automatically updates inventory stock and recalculates the **Base Rate** based on the latest purchase price.
 
 ### Tab 6: Financials (P&L)
+*   **Global Cash Flow**: Tracks actual money in (Total Collected) vs money out (Total Expenses), providing a "Net Cash Profit" view.
+*   **Project Profitability**: Analyzes profitability per project based on Estimated Costs vs Actual Revenue.
 *   **Business Health**: View Total Collected vs. Total Expenses.
 *   **Outstanding Amount**: Tracks the gap between quoted and collected amounts.
 *   **Visual Analysis**: 7 Distinct Charts:
@@ -56,7 +62,7 @@ The core tool for generating quotes.
     4.  **Monthly Performance** (Combo Bar+Line - Altair)
     5.  **Client Profitability** (Line - Altair)
     6.  **Monthly Performance Trend** (Line - Altair)
-    7.  **Business Health Scorecard** (Radar - Plotly)
+    7.  **Business Health Scorecard** (Radar - Plotly) - Visualizes Revenue Capture, Profit Margin, Cost Efficiency, and Labor Cost %.
 
 ### Tab 7: Settings
 *   **Global Defaults**: Set standard margins for Parts, Labor, and Extra overheads.
@@ -64,6 +70,12 @@ The core tool for generating quotes.
 *   **Global Defaults**: Set standard margins for Parts, Labor, and Extra overheads.
 *   **Labor Cost**: Define the daily cost per laborer.
 *   **Advance Config**: Set the global "Advance Profit Margin %". Includes an interactive calculator preview.
+*   **Manage Staff Roles**: Add new roles to the system dynamically (e.g., "Senior Technician").
+
+### Tab 8: Staff Management
+*   **Team Roster**: View all staff members, their roles, phone numbers, and current status.
+*   **Status Tracking**: Staff status updates automatically based on project assignment (`Available` -> `On Site`).
+*   **Registration**: Add new staff members with specific roles and daily wage rates.
 
 ---
 
@@ -207,9 +219,23 @@ Streamlit's execution model reloads the script on every interaction. To prevent 
 
 ---
 
-## 5. Estimator Engine: Margin & Financial Modeling
 
-### 5.1 Unit Normalization & Conversion Logic
+## 5. Debugging Architecture
+
+### 5.1 Runtime HUD (Heads Up Display)
+For advanced debugging, the application supports a runtime HUD injected via JavaScript.
+
+*   **Mechanism**: The HUD is injected into the DOM using `st.components.v1.html` or direct JS injection.
+*   **Purpose**:
+    *   **State Visualization**: Displays critical session state variables (e.g., current user, active client ID) overlaying the UI.
+    *   **Action Triggers**: Allows developers to trigger specific backend states or reset data without navigating the full UI.
+    *   **Console Logging**: Bridges Python-side events to the browser console for easier tracing.
+
+---
+
+## 6. Estimator Engine: Margin & Financial Modeling
+
+### 6.1 Unit Normalization & Conversion Logic
 
 The system normalizes all linear measurements to a base unit of **1.0** (equivalent to meters or pieces) before applying costs. This ensures that a user entering "10 feet" is charged correctly relative to the base rate defined in meters.
 
@@ -225,7 +251,7 @@ The system normalizes all linear measurements to a base unit of **1.0** (equival
 $$ \text{Effective Qty} = \text{Qty} \times \text{Conversion Factor} $$
 $$ 10 \text{ ft} \times 0.3048 = 3.048 \text{ effective units} $$
 
-### 5.2 Financial Formulas
+### 6.2 Financial Formulas
 
 All financial calculations are centralized in `utils.helpers.calculate_estimate_details`.
 
@@ -245,7 +271,7 @@ The advance is calculated to cover the base cost plus a 10% profit buffer, also 
 
 $$ \text{Advance} = \lceil \frac{\text{Total Base Cost} + (0.10 \times \text{Total Profit})}{100} \rceil \times 100 $$
 
-### 5.3 Estimate Data Persistence
+### 6.3 Estimate Data Persistence
 
 The estimate data is stored in the `clients` table within the `internal_estimate` column. This is a **JSONB** column in PostgreSQL.
 
@@ -262,9 +288,9 @@ The estimate data is stored in the `clients` table within the `internal_estimate
 
 ---
 
-## 6. Data Structure & State Mapping
+## 7. Data Structure & State Mapping
 
-### 6.1 PostgreSQL Schema Mapping
+### 7.1 PostgreSQL Schema Mapping
 
 This table maps critical UI fields to their underlying database columns, providing a definitive reference for data types and constraints.
 
@@ -277,9 +303,41 @@ This table maps critical UI fields to their underlying database columns, providi
 | **Address** | `address` | `TEXT` | Full billing/site address. |
 | **Status** | `status` | `TEXT` | Enum-like: `Estimate Given`, `Work Done`, etc. |
 | **Start Date** | `start_date` | `DATE` | Project commencement date. |
-| **Maps Link** | `location` | `TEXT` | URL or GPS coordinates. |
 | **(Hidden)** | `internal_estimate` | `JSONB` | Stores the list of estimate items (See Section 2.3). |
 | **Final Amount Received** | `final_settlement_amount` | `NUMERIC` | Actual cash collected. Used for P&L "Revenue". |
+| **Assigned Staff** | `assigned_staff` | `JSONB` | List of Staff IDs assigned to the project. |
+
+**Table: `staff`**
+
+| Application Field (UI Label) | PostgreSQL Column | Data Type | Constraint / Usage |
+| :--- | :--- | :--- | :--- |
+| **Full Name** | `name` | `TEXT` | Not Null. |
+| **Role** | `role` | `TEXT` | Not Null. |
+| **Phone Number** | `phone` | `TEXT` | |
+| **Daily Wage** | `salary` | `NUMERIC` | Default 0. Mapped from UI 'Daily Wage'. |
+| **Status** | `status` | `TEXT` | Default 'Available'. Options: 'Available', 'On Site'. |
+
+**Table: `staff_roles`**
+
+| Application Field (UI Label) | PostgreSQL Column | Data Type | Constraint / Usage |
+| :--- | :--- | :--- | :--- |
+| **Role Name** | `role_name` | `TEXT` | Primary Key. Name of the role (e.g., Manager). |
+
+**Table: `staff`**
+
+| Application Field (UI Label) | PostgreSQL Column | Data Type | Constraint / Usage |
+| :--- | :--- | :--- | :--- |
+| **Full Name** | `name` | `TEXT` | Not Null. |
+| **Role** | `role` | `TEXT` | Not Null. |
+| **Phone Number** | `phone` | `TEXT` | |
+| **Daily Wage** | `salary` | `NUMERIC` | Default 0. Mapped from UI 'Daily Wage'. |
+| **Status** | `status` | `TEXT` | Default 'Available'. Options: 'Available', 'On Site'. |
+
+**Table: `staff_roles`**
+
+| Application Field (UI Label) | PostgreSQL Column | Data Type | Constraint / Usage |
+| :--- | :--- | :--- | :--- |
+| **Role Name** | `role_name` | `TEXT` | Primary Key. Name of the role (e.g., Manager). |
 
 **Table: `inventory`**
 
@@ -301,7 +359,7 @@ This table maps critical UI fields to their underlying database columns, providi
 | **Date** | `purchase_date` | `DATE` | Date of transaction. |
 | **Notes** | `notes` | `TEXT` | Optional remarks. |
 
-### 6.2 Streamlit Session State Lifecycle
+### 7.2 Streamlit Session State Lifecycle
 
 Streamlit's state management is crucial for the "Manage Estimate" feature, which requires temporary persistence before saving to the DB.
 
@@ -321,9 +379,9 @@ Streamlit's state management is crucial for the "Manage Estimate" feature, which
 
 ---
 
-## 7. Operational and Reporting Logic
+## 8. Operational and Reporting Logic
 
-### 7.1 Stock Validation Pseudocode
+### 8.1 Stock Validation Pseudocode
 
 The system validates stock availability in real-time within the Estimator.
 
@@ -341,9 +399,11 @@ graph TD
     I -- No --> J{Missing List Empty?}
     J -- Yes --> K[Show Success / Ready]
     J -- No --> L[Trigger st.error Alert]
+    L --> M[Show 'Place Order' Button]
+    M --> N[Add to Restock Queue (Session State)]
 ```
 
-### 7.2 Purchase Log & Inventory Update Synchronization
+### 8.2 Purchase Log & Inventory Update Synchronization
 
 Recording a purchase involves a **Dual-Write Operation** to ensure auditability and state consistency.
 
@@ -376,7 +436,7 @@ def record_purchase(item, qty, rate):
     }).eq("id", item.id).execute()
 ```
 
-### 7.3 PDF Generation Data Flow
+### 8.3 PDF Generation Data Flow
 
 The transition from UI Data to PDF Output involves a specific transformation pipeline.
 
@@ -395,9 +455,9 @@ The transition from UI Data to PDF Output involves a specific transformation pip
 
 ---
 
-## 8. Aesthetics & UI Implementation Details 🎨
+## 9. Aesthetics & UI Implementation Details 🎨
 
-### 8.1 Streamlit Style Injection
+### 9.1 Streamlit Style Injection
 
 **Source**: `app.py` (Lines 33-57)
 The application enforces a custom "Dark Mode" theme by injecting raw CSS via `st.markdown`.
@@ -432,7 +492,7 @@ footer { visibility: hidden; }
 *   **#262730**: Used for cards (Metrics), providing depth and separation from the background.
 *   **#464b5f**: A subtle border color that defines the edges of UI elements without being distracting.
 
-### 8.2 Component Appearance Map
+### 9.2 Component Appearance Map
 
 | Component | Selector (CSS) | Property : Value | Resulting Aesthetic |
 | :--- | :--- | :--- | :--- |
@@ -444,9 +504,9 @@ footer { visibility: hidden; }
 
 ---
 
-## 9. PDF Layout Specification ($\text{fpdf}$ Mechanics) 📄
+## 10. PDF Layout Specification ($\text{fpdf}$ Mechanics) 📄
 
-### 9.1 Global PDF Layout Constants
+### 10.1 Global PDF Layout Constants
 
 **Source**: `utils/helpers.py` (`PDFGenerator` class)
 
@@ -459,7 +519,7 @@ footer { visibility: hidden; }
 | **Date Stamp** | Font | `"Arial", '', 10` | Standard text. |
 | **Table Header Fill** | Color | `(240, 240, 240)` | Light gray background for headers. |
 
-### 9.2 Invoice Cell and Alignment Matrix
+### 10.2 Invoice Cell and Alignment Matrix
 
 **Source**: `generate_client_invoice` method.
 The table is rendered using a strict grid system.

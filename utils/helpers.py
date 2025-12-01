@@ -9,7 +9,7 @@ from io import BytesIO
 # ---------------------------
 CONVERSIONS = {'pcs': 1.0, 'each': 1.0, 'm': 1.0, 'cm': 0.01, 'ft': 0.3048, 'in': 0.0254}
 P_L_STATUS = ["Work Done", "Closed"]
-ACTIVE_STATUSES = ["Estimate Given", "Order Received", "Work In Progress"]
+ACTIVE_STATUSES = ["New Lead", "Estimate Given", "Order Received", "Work In Progress"]
 INACTIVE_STATUSES = ["Work Done", "Closed"]
 
 # --- PROFESSIONAL PDF GENERATOR ---

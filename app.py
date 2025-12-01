@@ -24,12 +24,23 @@ if st.session_state.get('cache_fix_needed', True):
     st.session_state.cache_fix_needed = False
 # === END OF CRITICAL CACHE FIX ===
 
-# --- HIDE STREAMLIT ANCHORS ---
+# --- HIDE STREAMLIT ANCHORS & TOOLBAR ---
 st.markdown("""
     <style>
     /* Hide the link icon next to headers */
     [data-testid="stHeader"] a {
         display: none;
+    }
+    /* Hide Streamlit Header and Toolbar */
+    [data-testid="stHeader"] {
+        visibility: hidden;
+    }
+    [data-testid="stToolbar"] {
+        visibility: hidden;
+    }
+    /* Reduce top spacing */
+    .block-container {
+        padding-top: 1rem !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -42,30 +53,68 @@ if 'username' not in st.session_state:
 
 st.markdown("""
     <style>
-    .stApp { background-color: #0E1117 !important; }
-    header[data-testid="stHeader"] { background-color: #0E1117 !important; }
-    [data-testid="stAppViewContainer"] {
-        background-color: #0e1117;
+    /* System Fonts for Emoji Support */
+    html, body, [class*="css"] {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
     }
-    [data-testid="stSidebar"] {
-        background-color: #0e1117;
+    
+    /* Deep Space Background */
+    .stApp {
+        background: radial-gradient(circle at 10% 20%, #0f172a 0%, #020617 90%);
+        color: #e2e8f0;
     }
-    html, body {
-        background-color: #0E1117;
-        height: 100%;
-        margin: 0;
-    }
-    #MainMenu { visibility: hidden; }
-    footer { visibility: hidden; }
+    
+    /* Glassmorphism Cards (With Border) */
     [data-testid="stMetric"] {
-        background-color: #262730;
-        border: 1px solid #464b5f;
-        padding: 15px;
-        border-radius: 8px;
-        color: white;
+        background: rgba(30, 41, 59, 0.4);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 16px;
+        padding: 20px;
+        box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.2);
+        transition: all 0.3s ease;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        background: none !important;
+        -webkit-text-fill-color: initial !important;
     }
-    [data-testid="stMetricLabel"] { color: #b4b4b4; }
-    </style>
+
+    /* DataFrame & Tables - Match UI */
+    div.stDataFrame {
+        background-color: transparent !important;
+        border: none !important;
+    }
+    
+    [data-testid="stDataFrame"] div[class*="stDataFrame"] {
+        background-color: transparent !important;
+    }
+    
+    /* Premium Slate Buttons */
+    div.stButton > button {
+        background: rgba(30, 41, 59, 0.6) !important;
+        color: #f1f5f9 !important;
+        border: 1px solid rgba(148, 163, 184, 0.1) !important;
+        padding: 0.6rem 1.5rem !important; /* Increased padding */
+        border-radius: 8px;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+        transition: all 0.2s ease;
+    }
+    
+    div.stButton > button:hover {
+        background: rgba(51, 65, 85, 0.8) !important;
+        border-color: rgba(148, 163, 184, 0.3) !important;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        color: #ffffff !important;
+    }
+    
+    div.stButton > button:active {
+        transform: translateY(0);
+        background: rgba(30, 41, 59, 0.8) !important;
+    }
+    
     <!-- Fix for mobile safe areas and browser chrome -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#0E1117">
@@ -98,6 +147,18 @@ def get_inventory():
 @st.cache_data(ttl=300)
 def get_suppliers():
     return supabase.table("suppliers").select("*").order("name").execute()
+
+@st.cache_data(ttl=300)
+def get_staff():
+    try:
+        return supabase.table("staff").select("*").order("name").execute()
+    except: return None
+
+@st.cache_data(ttl=300)
+def get_staff_roles():
+    try:
+        return supabase.table("staff_roles").select("*").execute()
+    except: return None
 
 @st.cache_data(ttl=3600)
 def get_settings():
@@ -173,19 +234,20 @@ if not st.session_state.get('logged_in'):
     st.stop()
 
 # Top Bar
-top_c1, top_c2 = st.columns([10, 2])
-top_c1.write(f"👤 Logged in as: **{st.session_state.username}**")
-if top_c2.button("Log Out", type="secondary"):
-    st.session_state.logged_in = False
-    cookie_manager.delete("jugnoo_user")
-    st.rerun()
+st.title("🚀 Jugnoo CRM")
+st.markdown(f"""
+<div style="display: flex; align-items: center; margin-bottom: 0px;">
+    <span style="font-size: 1.75rem; margin-right: 10px;">👋</span>
+    <span style="font-size: 1.75rem; font-weight: 700; background: linear-gradient(to right, #f8fafc, #94a3b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Welcome back, {st.session_state.username}</span>
+</div>
+""", unsafe_allow_html=True)
 
 # Define Tabs
-tab1, tab2, tab3, tab_inv, tab5, tab6, tab4 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Estimator", "📦 Inventory", "🚚 Suppliers", "📈 P&L", "⚙️ Settings"])
+tab1, tab2, tab3, tab_inv, tab5, tab8, tab6, tab4 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Estimator", "📦 Inventory", "🚚 Suppliers", "👥 Staff", "📈 P&L", "⚙️ Settings"])
 
 # --- TAB 1: DASHBOARD ---
 with tab1:
-    st.subheader("📊 Project Dashboard")
+    st.subheader("📋 Project Dashboard")
     
     # Dashboard Metrics
     try:
@@ -206,7 +268,6 @@ with tab1:
             c_act, c_top = st.columns(2)
             with c_act:
                 st.markdown("#### 🕒 Recent Activity")
-                # Sort by created_at desc
                 if 'created_at' in df_dash.columns:
                     rec_df = df_dash.sort_values('created_at', ascending=False).head(5)
                     for _, r in rec_df.iterrows():
@@ -216,22 +277,20 @@ with tab1:
             with c_top:
                 st.markdown("#### 🏆 Top Clients (Value)")
                 if 'internal_estimate' in df_dash.columns:
-                    # Extract total value from internal_estimate json
                     def get_val(x):
-                        try:
-                            return float(x.get('total', 0)) if x else 0
-                        except:
-                            return 0
+                        try: return float(x.get('total', 0)) if x else 0
+                        except: return 0
                     
                     df_dash['est_val'] = df_dash['internal_estimate'].apply(get_val)
                     top_df = df_dash.sort_values('est_val', ascending=False).head(5)
                     st.dataframe(top_df[['name', 'est_val']], column_config={"name": "Client", "est_val": st.column_config.NumberColumn("Est. Value", format="₹%.2f")}, hide_index=True, use_container_width=True)
                 else: st.info("No value data.")
             
-            st.divider()
+            st.markdown("---") # Use a thinner separator or just margin
     except: pass
 
-    status_filter = st.radio("Show:", ["Active", "All", "Closed"], horizontal=True)
+    st.markdown("### 📂 Client Projects")
+    status_filter = st.radio("Filter", ["Active", "All", "Closed"], horizontal=True, label_visibility="collapsed")
     
     try:
         all_clients_resp = get_clients()
@@ -257,6 +316,13 @@ with tab1:
                                 
                                 if client.get('location'):
                                     st.link_button("📍 Open Location", url=client['location'], use_container_width=True)
+                                
+                                # Geolocation for Edit
+                                loc_edit = get_geolocation(component_key=f"geo_edit_{client['id']}")
+                                if loc_edit:
+                                    if st.button("📍 Use Current Location", key=f"paste_loc_{client['id']}"):
+                                        ml = f"https://www.google.com/maps/search/{loc_edit['coords']['latitude']},{loc_edit['coords']['longitude']}"
+                                        st.rerun()
 
                                 if st.form_submit_button("💾 Save Changes"):
                                     if np and not np.replace("+", "").replace("-", "").replace(" ", "").isdigit():
@@ -284,18 +350,63 @@ with tab1:
                                 def_d = datetime.strptime(d_str, '%Y-%m-%d').date() if d_str else datetime.now().date()
                                 s_date = st.date_input("📅 Start Date", value=def_d, key=f"sd_{client['id']}")
                             
-                            if st.button("Update Status", key=f"btn_{client['id']}"):
+                            # Staff Assignment Logic
+                            assigned_staff_ids = []
+                            show_staff_assign = n_stat in ["Order Received", "Work In Progress"]
+                            
+                            if show_staff_assign:
+                                st.write("**Assign Staff**")
+                                try:
+                                    staff_res = get_staff()
+                                    if staff_res and staff_res.data:
+                                        avail_staff = [s for s in staff_res.data if s['status'] in ['Available', 'On Site']]
+                                        staff_opts = {s['name']: s['id'] for s in avail_staff}
+                                        
+                                        curr_assigned = client.get('assigned_staff', [])
+                                        curr_assigned_names = []
+                                        if curr_assigned:
+                                            id_to_name = {s['id']: s['name'] for s in staff_res.data}
+                                            curr_assigned_names = [id_to_name.get(sid) for sid in curr_assigned if sid in id_to_name]
+                                        
+                                        sel_staff_names = st.multiselect("Select Team", list(staff_opts.keys()), default=curr_assigned_names, key=f"staff_{client['id']}")
+                                        assigned_staff_ids = [staff_opts[n] for n in sel_staff_names]
+                                except: st.error("Could not load staff.")
+
+                            btn_text = "Update Status & Staff" if show_staff_assign else "Update Status"
+                            if st.button(btn_text, key=f"btn_{client['id']}"):
                                 upd = {"status": n_stat}
                                 if s_date: upd["start_date"] = s_date.isoformat()
+                                
+                                if show_staff_assign:
+                                    upd["assigned_staff"] = assigned_staff_ids
+                                    try:
+                                        if assigned_staff_ids:
+                                            supabase.table("staff").update({"status": "On Site"}).in_("id", assigned_staff_ids).execute()
+                                        
+                                        prev_assigned = client.get('assigned_staff', [])
+                                        removed = [pid for pid in prev_assigned if pid not in assigned_staff_ids]
+                                        if removed:
+                                            supabase.table("staff").update({"status": "Available"}).in_("id", removed).execute()
+                                    except Exception as e: print(e)
+
+                                elif n_stat == "Work Done":
+                                    curr_assigned = client.get('assigned_staff', [])
+                                    if curr_assigned:
+                                        try:
+                                            supabase.table("staff").update({"status": "Available"}).in_("id", curr_assigned).execute()
+                                            upd["assigned_staff"] = []
+                                        except: pass
+
                                 try:
                                     supabase.table("clients").update(upd).eq("id", client['id']).execute()
-                                    st.success("Status Updated!")
+                                    st.success("Updated!")
                                     get_clients.clear()
+                                    get_staff.clear()
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Error: {e}")
 
-                            # Payment Section (Only for Closed)
+                            # Payment Section
                             if client.get('status') == "Closed":
                                 st.divider()
                                 st.write("💰 **Record Payment Received**")
@@ -312,12 +423,10 @@ with tab1:
                                             global_settings=gs
                                         )
                                         est_advance = calc_results["rounded_grand_total"]
-                                    except:
-                                        pass
+                                    except: pass
                                 
                                 curr_pay = client.get('final_settlement_amount', 0.0)
                                 val_to_show = float(curr_pay) if curr_pay else float(est_advance)
-                                # Enforce rounding (Ceil to 100) and ensure integer type
                                 if pd.isna(val_to_show) or val_to_show == 0:
                                     val_to_show = int(est_advance) if not pd.isna(est_advance) else 0
                                 else:
@@ -349,7 +458,7 @@ with tab1:
                              get_clients.clear()
                              st.rerun()
 
-                        # --- Restore "Manage Estimate" Section ---
+                        # Manage Estimate Section
                         if client.get('internal_estimate'):
                             st.divider()
                             st.subheader("📋 Manage Estimate")
@@ -408,7 +517,6 @@ with tab1:
                                         df_to_save[col] = pd.to_numeric(df_to_save[col].fillna(0))
                                     for col in ['Item', 'Unit']: df_to_save[col] = df_to_save[col].fillna("")
                                     
-                                    
                                     st.dataframe(df_profit[['Item', 'Qty', 'Unit', 'Base Rate', 'Total Sell Price', 'Row Profit']], use_container_width=True, hide_index=True)
                                     st.metric("Net Profit (from Grand Total)", f"₹{total_profit:,.0f}")
                                 else:
@@ -455,7 +563,7 @@ with tab2:
                     st.error(f"Error: Client with the name {nm} already exists.")
                     st.stop()
                 try:
-                    res = supabase.table("clients").insert({"name": nm, "phone": ph, "address": ad, "location": ml_new_client, "status": "Estimate Given", "created_at": datetime.now().isoformat()}).execute()
+                    res = supabase.table("clients").insert({"name": nm, "phone": ph, "address": ad, "location": ml_new_client, "status": "New Lead", "created_at": datetime.now().isoformat()}).execute()
                     if res and res.data: 
                         st.success(f"Client {nm} Added!")
                         get_clients.clear()
@@ -934,6 +1042,115 @@ with tab5:
     else:
         st.info("No suppliers found.")
 
+# --- TAB 8: STAFF MANAGEMENT ---
+with tab8:
+    st.subheader("👥 Staff Management")
+    
+    # Add New Staff
+    with st.expander("➕ Register New Staff Member", expanded=False):
+        with st.form("add_staff_form"):
+            c1, c2 = st.columns(2)
+            s_name = c1.text_input("Full Name")
+            # Fetch dynamic roles
+            roles_res = get_staff_roles()
+            role_options = [r['role_name'] for r in roles_res.data] if roles_res and roles_res.data else ["Technician", "Helper"]
+            s_role = c2.selectbox("Role", role_options)
+            s_phone = c1.text_input("Phone Number")
+            s_daily = c2.number_input("Daily Wage (₹)", min_value=0, step=50, format="%d")
+            
+            if st.form_submit_button("Register Staff"):
+                if s_name and s_role and s_phone and s_daily:
+                    try:
+                        supabase.table("staff").insert({
+                            "name": s_name,
+                            "role": s_role,
+                            "phone": s_phone,
+                            "salary": int(s_daily), # Map to schema column 'salary'
+                            "status": "Available"
+                        }).execute()
+                        st.success(f"Registered {s_name}!")
+                        get_staff.clear()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+                else:
+                    st.error("All fields are required.")
+
+    st.divider()
+
+    # Staff List & Status
+    st.markdown("### 📋 Team Roster")
+    
+    try:
+        staff_resp = get_staff()
+        if staff_resp and staff_resp.data:
+            staff_df = pd.DataFrame(staff_resp.data)
+            
+            # Metrics
+            total_staff = len(staff_df)
+            active_staff = len(staff_df[staff_df['status'] == 'Available'])
+            on_site_staff = len(staff_df[staff_df['status'] == 'On Site'])
+            
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Total Staff", total_staff)
+            m2.metric("Available", active_staff)
+            m3.metric("On Site", on_site_staff)
+            
+            st.divider()
+            
+            # Staff Cards
+            for _, staff in staff_df.iterrows():
+                # Card Styling
+                status_color = "#10b981" if staff['status'] == 'Available' else "#f59e0b" if staff['status'] == 'On Site' else "#ef4444"
+                
+                with st.container():
+                    card_html = """
+                    <div style="
+                        background: rgba(30, 41, 59, 0.4);
+                        border-radius: 12px;
+                        padding: 16px;
+                        margin-bottom: 12px;
+                        border: 1px solid rgba(255, 255, 255, 0.05);
+                        display: flex;
+                        justify_content: space-between;
+                        align-items: center;
+                    ">
+                        <div>
+                            <h4 style="margin: 0; color: #f8fafc;">{name}</h4>
+                            <p style="margin: 4px 0 0 0; color: #94a3b8; font-size: 0.9rem;">{role} • {phone}</p>
+                        </div>
+                        <div style="text-align: right;">
+                            <span style="
+                                background: {status_color}20;
+                                color: {status_color};
+                                padding: 4px 12px;
+                                border-radius: 999px;
+                                font-size: 0.8rem;
+                                font-weight: 600;
+                            ">{status}</span>
+                            <p style="margin: 4px 0 0 0; color: #94a3b8; font-size: 0.9rem;">₹{daily_wage}/day</p>
+                        </div>
+                    </div>
+                    """
+                    st.markdown(card_html.format(
+                        name=staff['name'],
+                        role=staff['role'],
+                        phone=staff['phone'],
+                        status_color=status_color,
+                        status=staff['status'],
+
+                        daily_wage=staff.get('salary', 0)
+                    ), unsafe_allow_html=True)
+                    
+                    # Actions (Edit/Delete) - simplified for now, maybe just a delete button or status toggle?
+                    # For now, just view.
+                    
+        else:
+            st.info("No staff members found. Register one above.")
+            
+    except Exception as e:
+        st.error(f"Error loading staff: {e}")
+
 # --- TAB 6: P&L ---
 with tab6:
     st.subheader("📈 Profit & Loss Analysis")
@@ -1316,12 +1533,8 @@ with tab6:
             "Target": ["> 95%", "> 20%", "< 70%", "< 30%"]
         }
         st.dataframe(pd.DataFrame(health_data), use_container_width=True, hide_index=True)
-
-    else:
-        st.info("No data available.")
-
-
-# --- TAB 4: SETTINGS ---
+    
+# --- TAB 7: SETTINGS ---
 with tab4:
     st.subheader("⚙️ Global Settings")
     
@@ -1374,6 +1587,48 @@ with tab4:
 
 
     st.divider()
+    st.subheader("👥 Manage Staff Roles")
+    
+    # Fetch roles
+    roles_res = get_staff_roles()
+    current_roles = [r['role_name'] for r in roles_res.data] if roles_res and roles_res.data else []
+    
+    # Add New Role
+    with st.form("add_role_form"):
+        new_role = st.text_input("New Role Name")
+        if st.form_submit_button("Add Role"):
+            if new_role:
+                if new_role in current_roles:
+                    st.error("Role already exists.")
+                else:
+                    try:
+                        supabase.table("staff_roles").insert({"role_name": new_role}).execute()
+                        st.success(f"Role '{new_role}' added!")
+                        get_staff_roles.clear()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e} (Did you run the schema update?)")
+            else:
+                st.error("Please enter a role name.")
+    
+    # List and Delete Roles
+    if current_roles:
+        st.write("Current Roles:")
+        for role in current_roles:
+            c1, c2 = st.columns([3, 1])
+            c1.write(f"• {role}")
+            if c2.button("🗑️", key=f"del_role_{role}"):
+                try:
+                    supabase.table("staff_roles").delete().eq("role_name", role).execute()
+                    st.success(f"Role '{role}' deleted.")
+                    get_staff_roles.clear()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
+    else:
+        st.info("No roles found or table missing. Please update database schema.")
+
+    st.divider()
     st.subheader("🔐 Change Password")
     with st.form("change_pwd"):
         cur_pass = st.text_input("Current Password", type="password")
@@ -1395,3 +1650,9 @@ with tab4:
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error: {e}")
+
+    st.divider()
+    if st.button("🚪 Log Out", type="primary", use_container_width=True):
+        st.session_state.logged_in = False
+        cookie_manager.delete("jugnoo_user")
+        st.rerun()

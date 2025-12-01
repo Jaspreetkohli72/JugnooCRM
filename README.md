@@ -38,3 +38,7 @@ The app follows the natural flow of your business:
 *   **Dashboard**: Your command center. See a list of all active clients, check their status (e.g., "Order Received"), and make quick updates.
 *   **Geolocation**: Forget asking for directions. When adding a new client, one click captures their exact GPS location and creates a Google Maps link for your team.
 
+
+### 5. Staff Management 👥
+*   **Team Roster**: Manage your team members, track their status (Available/On Site), and assign them to projects.
+*   **Roles & Wages**: Define custom roles and set daily wages for accurate labor cost tracking.
