@@ -696,6 +696,22 @@ with tab5:
                 else:
                     st.error("Please select a supplier.")
     
+    # 0. Add New Supplier
+    with st.expander("➕ Add New Supplier"):
+        with st.form("add_sup"):
+            sn = st.text_input("Supplier Name")
+            sp = st.text_input("Phone")
+            scp = st.text_input("Contact Person")
+            
+            if st.form_submit_button("Add Supplier"):
+                try:
+                    supabase.table("suppliers").insert({"name": sn, "phone": sp, "contact_person": scp}).execute()
+                    st.success(f"Supplier '{sn}' added!")
+                    get_suppliers.clear()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
+    
     # 1. Record Purchase
     with st.expander("📝 Record Purchase", expanded=True):
         try:
