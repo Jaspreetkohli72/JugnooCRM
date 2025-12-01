@@ -708,13 +708,17 @@ with tab5:
             s_map = {s['name']: s['id'] for s in sup_resp.data}
             i_map = {i['item_name']: i for i in inv_resp.data}
             
+            c1, c2 = st.columns(2)
+            s_name = c1.selectbox("Supplier", list(s_map.keys()), key="sup_sel_rec")
+            i_name = c2.selectbox("Item", list(i_map.keys()), key="item_sel_rec")
+            
+            current_item = i_map[i_name]
+            unit = current_item.get('unit', 'pcs')
+            
             with st.form("rec_pur"):
-                c1, c2 = st.columns(2)
-                s_name = c1.selectbox("Supplier", list(s_map.keys()))
-                i_name = c2.selectbox("Item", list(i_map.keys()))
-                
                 c3, c4 = st.columns(2)
-                qty = c3.number_input("Quantity Purchased", min_value=1.0, step=1.0)
+                step_val = 1.0 if unit == 'pcs' else 0.1
+                qty = c3.number_input(f"Quantity Purchased ({unit})", min_value=0.1, step=step_val)
                 rate = c4.number_input("Purchase Rate", min_value=0.0, step=0.1)
                 
                 if st.form_submit_button("✅ Record Purchase"):
