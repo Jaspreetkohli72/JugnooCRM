@@ -737,14 +737,19 @@ with tab5:
                 qty = c3.number_input(f"Quantity Purchased ({unit})", min_value=0.1, step=step_val)
                 rate = c4.number_input("Purchase Rate", min_value=0.0, step=0.1)
                 
+                update_rate = st.checkbox("Update Inventory Base Rate?", value=True)
+                
                 if st.form_submit_button("✅ Record Purchase"):
                     try:
                         # Update Inventory Stock & Base Rate
                         curr_item = i_map[i_name]
                         new_stock = float(curr_item.get('stock_quantity', 0)) + qty
-                        # Update base rate to latest purchase rate (or weighted average - keeping simple for now)
                         
-                        supabase.table("inventory").update({"stock_quantity": new_stock, "base_rate": rate}).eq("id", curr_item['id']).execute()
+                        update_data = {"stock_quantity": new_stock}
+                        if update_rate:
+                            update_data["base_rate"] = rate
+                        
+                        supabase.table("inventory").update(update_data).eq("id", curr_item['id']).execute()
                         
                         # Log Purchase (Optional - if you had a purchases table)
                         # supabase.table("purchases").insert({...}).execute()
