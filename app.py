@@ -1195,9 +1195,9 @@ with tab4:
     
     with st.form("settings_form"):
         c1, c2, c3 = st.columns(3)
-        pm = c1.number_input("Default Parts Margin (%)", value=int(sett.get('part_margin', 20)))
-        lm = c2.number_input("Default Labor Margin (%)", value=int(sett.get('labor_margin', 20)))
-        em = c3.number_input("Default Extra Margin (%)", value=int(sett.get('extra_margin', 10)))
+        pm = c1.slider("Default Parts Margin (%)", 0, 100, int(sett.get('part_margin', 20)))
+        lm = c2.slider("Default Labor Margin (%)", 0, 100, int(sett.get('labor_margin', 20)))
+        em = c3.slider("Default Extra Margin (%)", 0, 100, int(sett.get('extra_margin', 10)))
         
         dlc = st.number_input("Daily Labor Cost (₹)", value=float(sett.get('daily_labor_cost', 1000.0)))
         
@@ -1221,5 +1221,31 @@ with tab4:
     
     with ac2:
         adv_amt = total_est_val * (adv_percent / 100)
-        st.metric("Advance Required", f"₹{adv_amt:,.0f}")
+        rem_amt = total_est_val - adv_amt
+        m1, m2 = st.columns(2)
+        m1.metric("Advance Required", f"₹{adv_amt:,.0f}")
+        m2.metric("Remaining Balance", f"₹{rem_amt:,.0f}")
         st.info(f"Formula: Total Value * {adv_percent}%")
+
+    st.divider()
+    st.subheader("🔐 Change Password")
+    with st.form("change_pwd"):
+        cur_pass = st.text_input("Current Password", type="password")
+        new_pass = st.text_input("New Password", type="password")
+        conf_pass = st.text_input("Confirm New Password", type="password")
+        
+        if st.form_submit_button("Update Password"):
+            if new_pass != conf_pass:
+                st.error("New passwords do not match.")
+            elif not check_login(st.session_state.username, cur_pass):
+                st.error("Incorrect current password.")
+            else:
+                try:
+                    supabase.table("users").update({"password": new_pass}).eq("username", st.session_state.username).execute()
+                    st.success("Password Updated! Please re-login.")
+                    time.sleep(1)
+                    st.session_state.logged_in = False
+                    cookie_manager.delete("jugnoo_user")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
