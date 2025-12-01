@@ -228,7 +228,9 @@ def calculate_estimate_details(edf_items_list, days, margins, global_settings):
     total_profit = rounded_grand_total - total_base_cost
     
     # CRITICAL: Advance uses ROUNDED grand total and profit calculation
-    advance_amount = math.ceil((total_base_cost + (total_profit * 0.10)) / 100) * 100
+    # Formula: (Material + Labor) + X% Profit Margin (from settings)
+    adv_margin_pct = float(global_settings.get('advance_margin', 20.0)) / 100.0
+    advance_amount = math.ceil((total_base_cost * (1 + adv_margin_pct)) / 100) * 100
     
     # Labor display includes rounding difference
     disp_lt = labor_actual_cost + (rounded_grand_total - raw_grand_total)

@@ -15,6 +15,9 @@ JugnooCRM is a specialized Customer Relationship Management tool designed for ma
 ### Tab 1: Dashboard
 The command center of the application.
 *   **Client List**: View all active clients. Filter by "Active", "Closed", or "All".
+*   **Summary Metrics**: Real-time overview of "Total Clients", "Active Projects", and "Completion Rate".
+*   **Recent Activity**: Feed of the 5 most recent client updates.
+*   **Top Clients**: Leaderboard of top 5 clients by estimated value.
 *   **Quick Actions**:
     *   **Call**: Click the phone number to initiate a call (mobile only).
     *   **Map**: Click the address link to open Google Maps.
@@ -34,10 +37,13 @@ The core tool for generating quotes.
 
 ### Tab 4: Inventory Management
 *   **Live Editor**: Update stock levels or base rates directly in the table.
+*   **Overview Metrics**: "Total Items", "Total Inventory Value", and "Low Stock" alerts.
 *   **Unit Support**: Supports `pcs`, `m`, `ft`, `cm`, `in` with auto-conversion.
+*   **Stock Enforcement**: Strict integer enforcement for `pcs` items.
 
 ### Tab 5: Suppliers & Purchasing
 *   **Purchase Log**: Record new stock purchases.
+*   **Overview Metrics**: "Total Suppliers", "Total Spend", and "Top Suppliers" by spend.
 *   **Auto-Update**: Automatically updates inventory stock and recalculates the **Base Rate** based on the latest purchase price.
 
 ### Tab 6: Financials (P&L)
@@ -55,7 +61,9 @@ The core tool for generating quotes.
 ### Tab 7: Settings
 *   **Global Defaults**: Set standard margins for Parts, Labor, and Extra overheads.
 *   **Labor Cost**: Define the daily cost per laborer.
-*   **Advance Calculator**: Quick tool to calculate required advance payments (Default: Base Cost + 10% Profit).
+*   **Global Defaults**: Set standard margins for Parts, Labor, and Extra overheads.
+*   **Labor Cost**: Define the daily cost per laborer.
+*   **Advance Config**: Set the global "Advance Profit Margin %". Includes an interactive calculator preview.
 
 ---
 

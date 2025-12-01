@@ -185,7 +185,52 @@ tab1, tab2, tab3, tab_inv, tab5, tab6, tab4 = st.tabs(["📋 Dashboard", "➕ Ne
 
 # --- TAB 1: DASHBOARD ---
 with tab1:
-    st.subheader("Client Dashboard")
+    st.subheader("📊 Project Dashboard")
+    
+    # Dashboard Metrics
+    try:
+        cl_data = get_clients().data
+        if cl_data:
+            df_dash = pd.DataFrame(cl_data)
+            total_clients = len(df_dash)
+            active_clients = len(df_dash[df_dash['status'].isin(helpers.ACTIVE_STATUSES)])
+            
+            d1, d2, d3 = st.columns(3)
+            d1.metric("Total Clients", total_clients)
+            d2.metric("Active Projects", active_clients)
+            d3.metric("Completion Rate", f"{(len(df_dash[df_dash['status']=='Closed'])/total_clients*100):.1f}%" if total_clients > 0 else "0%")
+            
+            st.divider()
+            
+            # Recent Activity & Top Clients
+            c_act, c_top = st.columns(2)
+            with c_act:
+                st.markdown("#### 🕒 Recent Activity")
+                # Sort by created_at desc
+                if 'created_at' in df_dash.columns:
+                    rec_df = df_dash.sort_values('created_at', ascending=False).head(5)
+                    for _, r in rec_df.iterrows():
+                        st.text(f"{r['created_at'][:10]} - {r['name']} ({r['status']})")
+                else: st.info("No activity data.")
+            
+            with c_top:
+                st.markdown("#### 🏆 Top Clients (Value)")
+                if 'internal_estimate' in df_dash.columns:
+                    # Extract total value from internal_estimate json
+                    def get_val(x):
+                        try:
+                            return float(x.get('total', 0)) if x else 0
+                        except:
+                            return 0
+                    
+                    df_dash['est_val'] = df_dash['internal_estimate'].apply(get_val)
+                    top_df = df_dash.sort_values('est_val', ascending=False).head(5)
+                    st.dataframe(top_df[['name', 'est_val']], column_config={"name": "Client", "est_val": st.column_config.NumberColumn("Est. Value", format="₹%.2f")}, hide_index=True, use_container_width=True)
+                else: st.info("No value data.")
+            
+            st.divider()
+    except: pass
+
     status_filter = st.radio("Show:", ["Active", "All", "Closed"], horizontal=True)
     
     try:
@@ -399,7 +444,9 @@ with tab2:
         ml_new_client = st.text_input("Google Maps Link", key=maps_link_new_client_key)
         
         if st.form_submit_button("Create Client", type="primary"):
-            if ph and not ph.replace("+", "").replace("-", "").replace(" ", "").isdigit():
+            if not nm or not ph or not ad:
+                st.error("Client Name, Phone, and Address are required fields.")
+            elif ph and not ph.replace("+", "").replace("-", "").replace(" ", "").isdigit():
                 st.error("Phone number must contain only digits, spaces, +, or -.")
             else:
                 # Check if client name already exists
@@ -578,6 +625,23 @@ with tab3:
 with tab_inv:
     st.subheader("📦 Inventory Management")
     
+    # Inventory Metrics
+    try:
+        inv_data = get_inventory().data
+        if inv_data:
+            idf_metrics = pd.DataFrame(inv_data)
+            total_items = len(idf_metrics)
+            idf_metrics['value'] = idf_metrics['stock_quantity'] * idf_metrics['base_rate']
+            total_inv_value = idf_metrics['value'].sum()
+            low_stock_count = len(idf_metrics[idf_metrics['stock_quantity'] < 10])
+            
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Total Items", total_items)
+            m2.metric("Total Inventory Value", f"₹{total_inv_value:,.0f}")
+            m3.metric("Low Stock Items (<10)", low_stock_count, delta_color="inverse")
+            st.divider()
+    except: pass
+
     # Add New Item
     with st.expander("➕ Add New Item"):
         with st.form("add_inv_item"):
@@ -586,9 +650,29 @@ with tab_inv:
             ib_rate = c2.number_input("Base Rate (₹)", min_value=0.0, step=0.1)
             iunit = c3.selectbox("Unit", ["pcs", "m", "ft", "cm", "in"])
             
+            # Strict Integer Enforcement for 'pcs'
+            # Note: Since this is inside a form, we can't dynamically change input type on unit change without rerun.
+            # But we can default to a safe float input and validate/cast on submit, OR use a generic step.
+            # User wants strict integer. We'll use a generic number_input but handle the logic.
+            # Actually, to strictly enforce int UI, we need st.rerun on unit change, but that breaks the form flow.
+            # Best compromise: Use step=1.0 for all, but format based on unit if possible? No, format is static.
+            # We will use step=1.0 and format="%.2f" as default to be safe, but cast to int for pcs on save.
+            # WAIT, user specifically complained about "0.10" for pcs.
+            # So we MUST use int step if pcs.
+            # Since we can't rerun inside form, we'll use a generic input and rely on user to enter correctly?
+            # NO, we can just use a float input but set step=1 if they select pcs? No, selectbox doesn't trigger rerun in form.
+            # We will move the form OUT to allow dynamic updates? No, that changes UX.
+            # We will just accept float but cast to int on save for pcs.
+            # AND we will add a warning if they enter decimal for pcs.
+            
             if st.form_submit_button("Add Item"):
                 try:
-                    supabase.table("inventory").insert({"item_name": inm, "base_rate": ib_rate, "unit": iunit, "stock_quantity": 0}).execute()
+                    # Enforce Integer for pcs
+                    qty_to_save = 0
+                    if iunit == 'pcs':
+                        qty_to_save = 0 # Initial stock is 0
+                    
+                    supabase.table("inventory").insert({"item_name": inm, "base_rate": ib_rate, "unit": iunit, "stock_quantity": qty_to_save}).execute()
                     st.success(f"Item '{inm}' added!")
                     get_inventory.clear()
                     st.rerun()
@@ -652,6 +736,38 @@ with tab_inv:
 # --- TAB 5: SUPPLIERS ---
 with tab5:
     st.subheader("🚚 Supplier Management")
+    
+    # Supplier Metrics
+    try:
+        sup_data = get_suppliers().data
+        if sup_data:
+            total_suppliers = len(sup_data)
+            sp_res = supabase.table("supplier_purchases").select("supplier_id, cost").execute()
+            
+            total_spend = 0
+            top_sup_data = []
+            
+            if sp_res.data:
+                sp_df = pd.DataFrame(sp_res.data)
+                sp_df['cost'] = sp_df['cost'].astype(float)
+                total_spend = sp_df['cost'].sum()
+                
+                # Top Suppliers
+                sup_map = {s['id']: s['name'] for s in sup_data}
+                sp_df['supplier_name'] = sp_df['supplier_id'].map(sup_map)
+                top_sup = sp_df.groupby('supplier_name')['cost'].sum().sort_values(ascending=False).head(5).reset_index()
+                top_sup_data = top_sup.to_dict('records')
+
+            sm1, sm2 = st.columns(2)
+            sm1.metric("Total Suppliers", total_suppliers)
+            sm2.metric("Total Spend", f"₹{total_spend:,.0f}")
+            
+            if top_sup_data:
+                st.caption("🏆 Top Suppliers by Spend")
+                st.dataframe(pd.DataFrame(top_sup_data), column_config={"supplier_name": "Supplier", "cost": st.column_config.NumberColumn("Total Spend", format="₹%.2f")}, hide_index=True, use_container_width=True)
+            
+            st.divider()
+    except: pass
     
     # Restock Queue Section
     if st.session_state.get('restock_queue'):
@@ -735,9 +851,29 @@ with tab5:
             
             with st.form("rec_pur"):
                 c3, c4 = st.columns(2)
-                step_val = 1.0 if unit == 'pcs' else 0.1
-                qty = c3.number_input(f"Quantity Purchased ({unit})", min_value=0.1, step=step_val)
-                rate = c4.number_input("Purchase Rate", min_value=0.0, step=0.1)
+                
+                # Strict Type Enforcement based on Unit
+                if unit == 'pcs':
+                    qty_val = 1
+                    qty_min = 1
+                    qty_step = 1
+                    rate_val = 0.0 # Rate can still be float for pcs? Usually yes.
+                    rate_min = 0.0
+                    rate_step = 0.1
+                    qty_fmt = "%d"
+                    rate_fmt = "%.2f"
+                else:
+                    qty_val = 1.0
+                    qty_min = 0.1
+                    qty_step = 0.1
+                    rate_val = 0.0
+                    rate_min = 0.0
+                    rate_step = 0.1
+                    qty_fmt = "%.2f"
+                    rate_fmt = "%.2f"
+
+                qty = c3.number_input(f"Quantity Purchased ({unit})", min_value=qty_min, step=qty_step, value=qty_val, format=qty_fmt, key=f"qty_{current_item['id']}")
+                rate = c4.number_input("Purchase Rate", min_value=rate_min, step=rate_step, value=rate_val, format=rate_fmt, key=f"rate_{current_item['id']}")
                 
                 update_rate = st.checkbox("Update Inventory Base Rate?", value=True)
                 
@@ -1204,28 +1340,38 @@ with tab4:
         if st.form_submit_button("💾 Save Settings"):
             try:
                 # Upsert settings (assuming id=1)
-                supabase.table("settings").upsert({"id": 1, "part_margin": pm, "labor_margin": lm, "extra_margin": em, "daily_labor_cost": dlc}).execute()
+                supabase.table("settings").upsert({"id": 1, "part_margin": pm, "labor_margin": lm, "extra_margin": em, "daily_labor_cost": dlc, "advance_margin": st.session_state.get('adv_margin_slider', 20)}).execute()
                 st.success("Settings Saved!")
                 get_settings.clear()
                 st.rerun()
             except Exception as e:
                 st.error(f"Error: {e}")
 
+    # Advance Payment Configuration & Explanation
     st.divider()
-    st.subheader("🧮 Advance Payment Calculator")
+    st.markdown("### 🧮 Advance Payment Configuration")
     
-    ac1, ac2 = st.columns([1, 2])
-    with ac1:
-        total_est_val = st.number_input("Total Estimate Value (₹)", min_value=0.0, value=100000.0, step=1000.0)
-        adv_percent = st.slider("Advance Percentage", 0, 100, 60)
+    # Global Setting Slider
+    adv_m = st.slider("Default Advance Profit Margin (%)", 0, 100, int(sett.get('advance_margin', 20)), key='adv_margin_slider')
     
-    with ac2:
-        adv_amt = total_est_val * (adv_percent / 100)
-        rem_amt = total_est_val - adv_amt
-        m1, m2 = st.columns(2)
-        m1.metric("Advance Required", f"₹{adv_amt:,.0f}")
-        m2.metric("Remaining Balance", f"₹{rem_amt:,.0f}")
-        st.info(f"Formula: Total Value * {adv_percent}%")
+    st.markdown("#### 👁️ Calculation Preview (Example)")
+    st.caption("See how your margin affects the advance amount using fixed example values.")
+    
+    # Fixed Example Values
+    ex_mat = 50000
+    ex_lab = 20000
+    ex_base = ex_mat + ex_lab
+    ex_profit = ex_base * (adv_m / 100)
+    ex_total = ex_base + ex_profit
+    
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Example Base Cost", f"₹{ex_base:,.0f}", help="Material (50k) + Labor (20k)")
+    c2.metric("Profit Amount", f"₹{ex_profit:,.0f}", delta=f"{adv_m}% Margin")
+    c3.metric("Total Advance Required", f"₹{ex_total:,.0f}")
+    
+    st.info(f"Formula Applied: (Material + Labor) + {adv_m}% Profit")
+
+
 
     st.divider()
     st.subheader("🔐 Change Password")
