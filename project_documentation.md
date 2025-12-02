@@ -73,9 +73,14 @@ The core tool for generating quotes.
 *   **Manage Staff Roles**: Add new roles to the system dynamically (e.g., "Senior Technician").
 
 ### Tab 8: Staff Management
-*   **Team Roster**: View all staff members, their roles, phone numbers, and current status.
-*   **Status Tracking**: Staff status updates automatically based on project assignment (`Available` -> `On Site`).
-*   **Registration**: Add new staff members with specific roles and daily wage rates.
+*   **Team Roster**: View all staff members with a clean, card-based UI.
+*   **Status Tracking**:
+    *   **Manual Updates**: Manually change status to `Available` (Green), `Busy` (Yellow), or `On Leave` (Red).
+    *   **Assignment Visibility**: Automatically shows the assigned client location when status is `Busy`.
+*   **Metrics**: Real-time dashboard showing "Available", "On Leave", "Busy/On Site", and "Total Staff".
+*   **Management**:
+    *   **Add Staff**: Register new members with dynamic roles and daily wages.
+    *   **Edit/Delete**: Expand any staff card to edit details (Name, Role, Phone, Wage) or delete the member.
 
 ---
 

@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import time
 import pandas as pd
 import math
+import textwrap
 
 from streamlit_js_eval import get_geolocation
 import altair as alt
@@ -359,7 +360,7 @@ with tab1:
                                 try:
                                     staff_res = get_staff()
                                     if staff_res and staff_res.data:
-                                        avail_staff = [s for s in staff_res.data if s['status'] in ['Available', 'On Site']]
+                                        avail_staff = [s for s in staff_res.data if s['status'] in ['Available', 'On Site', 'Busy']]
                                         staff_opts = {s['name']: s['id'] for s in avail_staff}
                                         
                                         curr_assigned = client.get('assigned_staff', [])
@@ -381,7 +382,7 @@ with tab1:
                                     upd["assigned_staff"] = assigned_staff_ids
                                     try:
                                         if assigned_staff_ids:
-                                            supabase.table("staff").update({"status": "On Site"}).in_("id", assigned_staff_ids).execute()
+                                            supabase.table("staff").update({"status": "Busy"}).in_("id", assigned_staff_ids).execute()
                                         
                                         prev_assigned = client.get('assigned_staff', [])
                                         removed = [pid for pid in prev_assigned if pid not in assigned_staff_ids]
@@ -1070,14 +1071,16 @@ with tab5:
 with tab8:
     st.subheader("👥 Staff Management")
     
+    # Fetch dynamic roles (Available for both Add and Edit)
+    roles_res = get_staff_roles()
+    role_options = [r['role_name'] for r in roles_res.data] if roles_res and roles_res.data else ["Technician", "Helper"]
+    
     # Add New Staff
     with st.expander("➕ Register New Staff Member", expanded=False):
         with st.form("add_staff_form"):
             c1, c2 = st.columns(2)
             s_name = c1.text_input("Full Name")
-            # Fetch dynamic roles
-            roles_res = get_staff_roles()
-            role_options = [r['role_name'] for r in roles_res.data] if roles_res and roles_res.data else ["Technician", "Helper"]
+            # roles_res fetched above
             s_role = c2.selectbox("Role", role_options)
             s_phone = c1.text_input("Phone Number")
             s_daily = c2.number_input("Daily Wage (₹)", min_value=0, step=50, format="%d")
@@ -1107,67 +1110,103 @@ with tab8:
     
     try:
         staff_resp = get_staff()
+        
+        # Fetch Clients for Assignment Mapping
+        clients_res = supabase.table("clients").select("name, assigned_staff, status").eq("status", "Active").execute()
+        staff_assignment_map = {}
+        if clients_res and clients_res.data:
+            for c in clients_res.data:
+                if c.get('assigned_staff'):
+                    for sid in c['assigned_staff']:
+                        staff_assignment_map[sid] = c['name']
+
         if staff_resp and staff_resp.data:
             staff_df = pd.DataFrame(staff_resp.data)
             
             # Metrics
             total_staff = len(staff_df)
             active_staff = len(staff_df[staff_df['status'] == 'Available'])
-            on_site_staff = len(staff_df[staff_df['status'] == 'On Site'])
+            on_site_staff = len(staff_df[staff_df['status'].isin(['On Site', 'Busy'])])
+            on_leave_staff = len(staff_df[staff_df['status'] == 'On Leave'])
             
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Total Staff", total_staff)
-            m2.metric("Available", active_staff)
-            m3.metric("On Site", on_site_staff)
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Available", active_staff)
+            m2.metric("On Leave", on_leave_staff)
+            m3.metric("Busy/On Site", on_site_staff)
+            m4.metric("Total Staff", total_staff)
             
             st.divider()
             
             # Staff Cards
             for _, staff in staff_df.iterrows():
                 # Card Styling
-                status_color = "#10b981" if staff['status'] == 'Available' else "#f59e0b" if staff['status'] == 'On Site' else "#ef4444"
+                # Map old 'On Site' to 'Busy' visually if needed, or just handle new statuses
+                current_status = staff['status']
+                if current_status == 'On Site': current_status = 'Busy' # Backward compat display
+                
+                status_color = "#10b981" # Green (Available)
+                if current_status == 'Busy': status_color = "#f59e0b" # Yellow
+                elif current_status == 'On Leave': status_color = "#ef4444" # Red
                 
                 with st.container():
-                    card_html = """
-                    <div style="
-                        background: rgba(30, 41, 59, 0.4);
-                        border-radius: 12px;
-                        padding: 16px;
-                        margin-bottom: 12px;
-                        border: 1px solid rgba(255, 255, 255, 0.05);
-                        display: flex;
-                        justify_content: space-between;
-                        align-items: center;
-                    ">
-                        <div>
-                            <h4 style="margin: 0; color: #f8fafc;">{name}</h4>
-                            <p style="margin: 4px 0 0 0; color: #94a3b8; font-size: 0.9rem;">{role} • {phone}</p>
-                        </div>
-                        <div style="text-align: right;">
-                            <span style="
-                                background: {status_color}20;
-                                color: {status_color};
-                                padding: 4px 12px;
-                                border-radius: 999px;
-                                font-size: 0.8rem;
-                                font-weight: 600;
-                            ">{status}</span>
-                            <p style="margin: 4px 0 0 0; color: #94a3b8; font-size: 0.9rem;">₹{daily_wage}/day</p>
-                        </div>
-                    </div>
-                    """
-                    st.markdown(card_html.format(
-                        name=staff['name'],
-                        role=staff['role'],
-                        phone=staff['phone'],
-                        status_color=status_color,
-                        status=staff['status'],
+                    # Simplified Card Face
+                    assignment_html = ""
+                    if current_status == 'Busy' and staff['id'] in staff_assignment_map:
+                        assignment_html = f'<p style="margin: 6px 0 0 0; color: #f59e0b; font-size: 0.85rem;">📍 {staff_assignment_map[staff["id"]]}</p>'
 
-                        daily_wage=staff.get('salary', 0)
-                    ), unsafe_allow_html=True)
+
+                    st.markdown(f"""<div style="background: rgba(30, 41, 59, 0.4); border-radius: 12px; padding: 16px; margin-bottom: 8px; border: 1px solid rgba(255, 255, 255, 0.05); display: flex; justify_content: space-between; align-items: center;"><div><h4 style="margin: 0; color: #f8fafc;">{staff['name']}</h4><p style="margin: 4px 0 0 0; color: #94a3b8; font-size: 0.9rem;">{staff['role']}</p>{assignment_html}</div><div style="text-align: right;"><span style="background: {status_color}20; color: {status_color}; padding: 4px 12px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; border: 1px solid {status_color}40;">&bull; {current_status}</span></div></div>""", unsafe_allow_html=True)
                     
-                    # Actions (Edit/Delete) - simplified for now, maybe just a delete button or status toggle?
-                    # For now, just view.
+                    # Manage Details Section
+                    with st.expander("⚙️ View & Manage Details"):
+                        # Status Control (Moved Here)
+                        st.caption("Update Status")
+                        status_opts = ["Available", "Busy", "On Leave"]
+                        try:
+                            s_idx = status_opts.index(current_status)
+                        except: s_idx = 0
+                        
+                        new_stat = st.selectbox("Status", status_opts, index=s_idx, key=f"stat_{staff['id']}", label_visibility="collapsed")
+                        
+                        if new_stat != staff['status']:
+                            supabase.table("staff").update({"status": new_stat}).eq("id", staff['id']).execute()
+                            st.toast(f"Status updated to {new_stat}!", icon="🔄")
+                            time.sleep(0.5)
+                            get_staff.clear()
+                            st.rerun()
+
+                        st.divider()
+
+                        with st.form(f"edit_staff_{staff['id']}"):
+                            c_e1, c_e2 = st.columns(2)
+                            e_name = c_e1.text_input("Name", value=staff['name'])
+                            e_role = c_e2.selectbox("Role", role_options, index=role_options.index(staff['role']) if staff['role'] in role_options else 0)
+                            e_phone = c_e1.text_input("Phone", value=staff.get('phone', ''))
+                            e_wage = c_e2.number_input("Daily Wage", value=int(staff.get('salary', 0)), step=50)
+                            
+                            if st.form_submit_button("💾 Save Details"):
+                                try:
+                                    supabase.table("staff").update({
+                                        "name": e_name,
+                                        "role": e_role,
+                                        "phone": e_phone,
+                                        "salary": e_wage
+                                    }).eq("id", staff['id']).execute()
+                                    st.success("Details Updated!")
+                                    get_staff.clear()
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error: {e}")
+                        
+                        st.markdown("---")
+                        if st.button("🗑️ Delete Staff Member", key=f"del_st_{staff['id']}", type="secondary"):
+                            try:
+                                supabase.table("staff").delete().eq("id", staff['id']).execute()
+                                st.success("Staff Deleted!")
+                                get_staff.clear()
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error: {e}")
                     
         else:
             st.info("No staff members found. Register one above.")
