@@ -75,7 +75,8 @@ The core tool for generating quotes.
 ### Tab 8: Staff Management
 *   **Team Roster**: View all staff members with a clean, card-based UI.
 *   **Status Tracking**:
-    *   **Manual Updates**: Manually change status to `Available` (Green), `Busy` (Yellow), or `On Leave` (Red).
+    *   **Auto-Status Logic**: Status is automatically set to `Busy` (Yellow) if assigned to a client, or `Available` (Green) if unassigned.
+    *   **Manual Override**: Use the "Mark as On Leave" checkbox to force status to `On Leave` (Red).
     *   **Assignment Visibility**: Automatically shows the assigned client location when status is `Busy`.
 *   **Metrics**: Real-time dashboard showing "Available", "On Leave", "Busy/On Site", and "Total Staff".
 *   **Management**:
