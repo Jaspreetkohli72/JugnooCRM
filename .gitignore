@@ -1,3 +1,4 @@
 .venv/
 venv/
 AUDIT_REPORT.md
+__pycache__/
