@@ -119,6 +119,7 @@ The core tool for generating quotes.
 | **Config** | **Extra %** | Slider | 0-100 | Override Extra Margin (if Custom enabled). |
 | **Add Items** | **Item** | Selectbox | Inventory Items | Select item to add to estimate. |
 | **Add Items** | **Qty** | Number Input | Min 0.1, Step varies | Quantity to add. Step is 1.0 for `pcs`, 0.1 for others. |
+| **Add Items** | **Unit** | Selectbox | `pcs`, `m`, `ft`, `cm`, `in` | Unit of measurement. **Auto-locked** to `pcs` for piece-items; **Enabled** for length-items to allow conversion. |
 | **Table** | **Data Editor** | Table | Dynamic Rows | Modify `Qty` and `Base Rate` of added items. |
 
 ### Tab 4: Inventory

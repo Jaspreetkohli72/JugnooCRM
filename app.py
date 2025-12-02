@@ -621,19 +621,43 @@ with tab3:
         inv = inv_all_items_response
         if inv and inv.data:
             imap = {i['item_name']: i for i in inv.data}
+            
+            # --- FIX: Move Item Selection OUTSIDE form for dynamic updates ---
+            inam = st.selectbox("Select Item to Add", list(imap.keys()), key="est_item_selector")
+            
+            selected_item_data = imap.get(inam, {})
+            db_unit = selected_item_data.get('unit', 'pcs')
+            
+            # Dynamic Unit Logic
+            if db_unit == 'pcs':
+                unit_opts = ['pcs']
+                unit_disabled = True
+                unit_index = 0
+            else:
+                unit_opts = ['m', 'ft', 'cm', 'in']
+                unit_disabled = False
+                try:
+                    unit_index = unit_opts.index(db_unit)
+                except ValueError:
+                    unit_index = 0 # Default to first if db_unit not in list (e.g. if it was 'kg' but we only support length)
+
             with st.form("add_est"):
-                c1, c2, c3 = st.columns([3, 1, 1])
-                inam = c1.selectbox("Item", list(imap.keys()))
+                c1, c2, c3 = st.columns([1, 1, 1])
                 
-                default_unit = imap.get(inam, {}).get('unit', 'pcs')
-                step_val = 1.0 if default_unit == "pcs" else 0.1
+                step_val = 1.0 if db_unit == "pcs" else 0.1
                 
-                iqty = c2.number_input("Qty", min_value=0.1, step=step_val)
-                iunit = c3.text_input("Unit", value=default_unit, disabled=True)
+                iqty = c1.number_input("Qty", min_value=0.1, step=step_val)
+                iunit = c2.selectbox("Unit", unit_opts, index=unit_index, disabled=unit_disabled)
                 
-                if st.form_submit_button("⬇️ Add"):
-                    selected_item = imap.get(inam, {})
-                    st.session_state[ssk].append({"Item": inam, "Qty": iqty, "Base Rate": selected_item.get('base_rate', 0), "Unit": default_unit})
+                # Add Button (aligned with inputs)
+                # Using a container to push button down to align with inputs if needed, or just standard
+                if c3.form_submit_button("⬇️ Add Item"):
+                    st.session_state[ssk].append({
+                        "Item": inam, 
+                        "Qty": iqty, 
+                        "Base Rate": selected_item_data.get('base_rate', 0), 
+                        "Unit": iunit
+                    })
                     st.rerun()
 
         if st.session_state[ssk]:
