@@ -21,7 +21,7 @@ The command center of the application.
 *   **Quick Actions**:
     *   **Call**: Click the phone number to initiate a call (mobile only).
     *   **Map**: Click the address link to open Google Maps.
-    *   **Edit**: Expand any client card to update details or change status.
+    *   **Edit**: Expand any client card to update details or change status. The "Use Current Location" button is positioned *outside* the edit form to prevent submission conflicts.
 *   **Manage Estimate**: A dedicated section within each client card to add/edit estimate items.
 
 ### Tab 2: New Client

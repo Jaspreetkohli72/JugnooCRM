@@ -309,22 +309,33 @@ with tab1:
                         c1, c2 = st.columns([1.5, 1])
                         with c1:
                             st.write("**Edit Details**")
+                            # Geolocation and Location Logic (Outside Form)
+                            loc_edit = get_geolocation(component_key=f"geo_edit_{client['id']}")
+                            
+                            # Determine initial value for Maps Link
+                            current_loc_val = client.get('location', '')
+                            loc_update_key = f"loc_update_{client['id']}"
+                            
+                            # Check if we have a pending update from the button
+                            if loc_update_key in st.session_state:
+                                current_loc_val = st.session_state[loc_update_key]
+
+                            if loc_edit:
+                                if st.button("📍 Use Current Location", key=f"paste_loc_{client['id']}"):
+                                    new_lat = loc_edit['coords']['latitude']
+                                    new_long = loc_edit['coords']['longitude']
+                                    st.session_state[loc_update_key] = f"https://www.google.com/maps/search/{new_lat},{new_long}"
+                                    st.rerun()
+
+                            if client.get('location'):
+                                st.link_button("📍 Open Saved Location", url=client['location'], use_container_width=True)
+
                             with st.form(f"edit_details_{client['id']}"):
                                 nn = st.text_input("Name", value=client['name'])
                                 np = st.text_input("Phone", value=client.get('phone', ''), max_chars=15, help="Enter digits only")
                                 na = st.text_area("Address", value=client.get('address', ''))
-                                ml = st.text_input("Maps Link", value=client.get('location', ''))
+                                ml = st.text_input("Maps Link", value=current_loc_val)
                                 
-                                if client.get('location'):
-                                    st.link_button("📍 Open Location", url=client['location'], use_container_width=True)
-                                
-                                # Geolocation for Edit
-                                loc_edit = get_geolocation(component_key=f"geo_edit_{client['id']}")
-                                if loc_edit:
-                                    if st.button("📍 Use Current Location", key=f"paste_loc_{client['id']}"):
-                                        ml = f"https://www.google.com/maps/search/{loc_edit['coords']['latitude']},{loc_edit['coords']['longitude']}"
-                                        st.rerun()
-
                                 if st.form_submit_button("💾 Save Changes"):
                                     if np and not np.replace("+", "").replace("-", "").replace(" ", "").isdigit():
                                         st.error("Phone number must contain only digits, spaces, +, or -.")
@@ -332,6 +343,9 @@ with tab1:
                                         try:
                                             supabase.table("clients").update({"name": nn, "phone": np, "address": na, "location": ml}).eq("id", client['id']).execute()
                                             st.success("Saved!")
+                                            # Clear the temp session state if it exists
+                                            if loc_update_key in st.session_state:
+                                                del st.session_state[loc_update_key]
                                             get_clients.clear()
                                             st.rerun()
                                         except Exception as e:
