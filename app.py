@@ -1162,73 +1162,89 @@ with tab8:
                    ass_text = f"<div style='font-size: 0.8rem; color: #f59e0b; margin-top: 2px;'>📍 {staff_assignment_map[staff['id']]}</div>"
 
                 # Container for Card
+                # Initialize Expansion State
+                exp_key = f"exp_st_{staff['id']}"
+                if exp_key not in st.session_state:
+                    st.session_state[exp_key] = False
+
+                # Container for Card
                 with st.container(border=True):
-                    c_main, c_act = st.columns([0.82, 0.18])
+                    # Custom HTML for Name, Badge, Info, Wage
+                    card_html = (
+                        f'<div style="display: flex; justify-content: space-between; align-items: start;">'
+                        f'    <div>'
+                        f'        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">'
+                        f'            <span style="font-size: 1.15rem; font-weight: 700; color: #f8fafc;">{staff["name"]}</span>'
+                        f'        </div>'
+                        f'        <div style="color: #94a3b8; font-size: 0.9rem;">'
+                        f'            {staff["role"]} <span style="color: #475569;">•</span> <span style="font-family: monospace;">{staff["phone"]}</span>'
+                        f'        </div>'
+                        f'        {ass_text}'
+                        f'    </div>'
+                        f'    <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px;">'
+                        f'        <span style="background-color: {bg_color}; color: {status_color}; padding: 2px 10px; border-radius: 999px; font-size: 0.7rem; font-weight: 600; border: {border_style}; white-space: nowrap;">{current_status}</span>'
+                        f'        <div style="text-align: right; color: #cbd5e1; font-family: monospace; font-weight: 500;">'
+                        f'            ₹{staff.get("salary", 0)}/day'
+                        f'        </div>'
+                        f'    </div>'
+                        f'</div>'
+                    )
+                    
+                    # Columns for Header Area: [HTML Content] [Toggle Button]
+                    c_main, c_toggle = st.columns([0.9, 0.1])
                     
                     with c_main:
-                        # Custom HTML for Name, Badge, Info, Wage
-                        # Custom HTML for Name, Badge, Info, Wage
-                        card_html = (
-                            f'<div style="display: flex; justify-content: space-between; align-items: start;">'
-                            f'    <div>'
-                            f'        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">'
-                            f'            <span style="font-size: 1.15rem; font-weight: 700; color: #f8fafc;">{staff["name"]}</span>'
-                            f'        </div>'
-                            f'        <div style="color: #94a3b8; font-size: 0.9rem;">'
-                            f'            {staff["role"]} <span style="color: #475569;">•</span> <span style="font-family: monospace;">{staff["phone"]}</span>'
-                            f'        </div>'
-                            f'        {ass_text}'
-                            f'    </div>'
-                            f'    <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px;">'
-                            f'        <span style="background-color: {bg_color}; color: {status_color}; padding: 2px 10px; border-radius: 999px; font-size: 0.7rem; font-weight: 600; border: {border_style}; white-space: nowrap;">{current_status}</span>'
-                            f'        <div style="text-align: right; color: #cbd5e1; font-family: monospace; font-weight: 500;">'
-                            f'            ₹{staff.get("salary", 0)}/day'
-                            f'        </div>'
-                            f'    </div>'
-                            f'</div>'
-                        )
-                        st.markdown(card_html, unsafe_allow_html=True)
+                         st.markdown(card_html, unsafe_allow_html=True)
                     
-                    with c_act:
-                         # Manage Button (Popover)
-                         with st.popover("Manage", use_container_width=True):
-                             st.caption(f"Manage {staff['name']}")
-                             with st.form(f"manage_staff_{staff['id']}"):
-                                 c_a, c_b = st.columns(2)
-                                 u_name = c_a.text_input("Name", value=staff['name'])
-                                 u_role = c_b.selectbox("Role", role_options, index=role_options.index(staff['role']) if staff['role'] in role_options else 0)
-                                 u_phone = c_a.text_input("Phone", value=staff['phone'])
-                                 u_wage = c_b.number_input("Daily Wage", value=int(staff.get('salary', 0)), step=50)
-                                 
-                                 st.markdown("**Status**")
-                                 st_opts = ["Available", "On Site", "On Leave", "Busy"]
-                                 u_stats = st.selectbox("Current Status", st_opts, index=st_opts.index(current_status) if current_status in st_opts else 0, label_visibility="collapsed")
-                                 
-                                 st.divider()
-                                 
-                                 col_s, col_d = st.columns([1,1])
-                                 if col_s.form_submit_button("✅ Save", type="primary"):
-                                    try:
-                                        supabase.table("staff").update({
-                                            "name": u_name,
-                                            "role": u_role,
-                                            "phone": u_phone,
-                                            "salary": u_wage,
-                                            "status": u_stats
-                                        }).eq("id", staff['id']).execute()
-                                        st.toast("Updated!", icon="✅")
-                                        time.sleep(0.5)
-                                        get_staff.clear()
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Error: {e}")
-                                 
-                                 if col_d.form_submit_button("🗑️ Delete", type="secondary"):
-                                     supabase.table("staff").delete().eq("id", staff['id']).execute()
-                                     st.toast("Deleted!", icon="🗑️")
-                                     time.sleep(0.5)
-                                     get_staff.clear()
-                                     st.rerun()
+                    with c_toggle:
+                        # Toggle Button
+                        btn_icon = ":material/expand_less:" if st.session_state[exp_key] else ":material/expand_more:"
+                        if st.button(btn_icon, key=f"btn_tog_{staff['id']}", type="secondary", use_container_width=True):
+                            st.session_state[exp_key] = not st.session_state[exp_key]
+                            st.rerun()
+
+                    # Expanded Content (Edit Form)
+                    if st.session_state[exp_key]:
+                        st.divider()
+                        st.caption(f"Manage {staff['name']}")
+                        with st.form(f"manage_staff_{staff['id']}"):
+                            c_a, c_b = st.columns(2)
+                            u_name = c_a.text_input("Name", value=staff['name'])
+                            u_role = c_b.selectbox("Role", role_options, index=role_options.index(staff['role']) if staff['role'] in role_options else 0)
+                            u_phone = c_a.text_input("Phone", value=staff['phone'])
+                            u_wage = c_b.number_input("Daily Wage", value=int(staff.get('salary', 0)), step=50)
+                            
+                            st.markdown("**Status**")
+                            st_opts = ["Available", "On Site", "On Leave", "Busy"]
+                            u_stats = st.selectbox("Current Status", st_opts, index=st_opts.index(current_status) if current_status in st_opts else 0, label_visibility="collapsed")
+                            
+                            st.divider()
+                            
+                            col_s, col_d = st.columns([1,1])
+                            if col_s.form_submit_button("✅ Save Changes", type="primary"):
+                               try:
+                                   supabase.table("staff").update({
+                                       "name": u_name,
+                                       "role": u_role,
+                                       "phone": u_phone,
+                                       "salary": u_wage,
+                                       "status": u_stats
+                                   }).eq("id", staff['id']).execute()
+                                   st.session_state[exp_key] = False # Collapse on success
+                                   st.toast("Updated!", icon="✅")
+                                   time.sleep(0.5)
+                                   get_staff.clear()
+                                   st.rerun()
+                               except Exception as e:
+                                   st.error(f"Error: {e}")
+                            
+                            if col_d.form_submit_button("🗑️ Delete Member", type="secondary"):
+                                supabase.table("staff").delete().eq("id", staff['id']).execute()
+                                # No need to collapse, item is gone
+                                st.toast("Deleted!", icon="🗑️")
+                                time.sleep(0.5)
+                                get_staff.clear()
+                                st.rerun()
                     
         else:
             st.info("No staff members found. Register one above.")
