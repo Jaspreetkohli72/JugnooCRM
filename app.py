@@ -173,6 +173,24 @@ import re
 def sanitize_filename(name):
     return re.sub(r'[^\w\s-]', '', name).strip().replace(' ', '_')
 
+def calculate_labor_from_assignments(assigned_ids):
+    """
+    Calculates total daily labor cost for a list of assigned staff IDs.
+    Returns the sum of their daily wages.
+    """
+    if not assigned_ids:
+        return 0.0
+    
+    try:
+        # Fetch staff data for these IDs
+        res = supabase.table("staff").select("daily_wage").in_("id", assigned_ids).execute()
+        if res and res.data:
+            total = sum(float(item['daily_wage']) for item in res.data if item.get('daily_wage'))
+            return total
+    except Exception as e:
+        print(f"Error calculating labor: {e}")
+        return 0.0
+
 # ---------------------------
 # 3. AUTHENTICATION
 # ---------------------------
@@ -397,125 +415,6 @@ with tab1:
                                             supabase.table("staff").update({"status": "Available"}).in_("id", curr_assigned).execute()
                                             upd["assigned_staff"] = []
                                         except: pass
-
-                                try:
-                                    supabase.table("clients").update(upd).eq("id", client['id']).execute()
-                                    st.success("Updated!")
-                                    get_clients.clear()
-                                    get_staff.clear()
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Error: {e}")
-
-                            # Payment Section
-                            if client.get('status') == "Closed":
-                                st.divider()
-                                st.write("💰 **Record Payment Received**")
-                                est_data = client.get('internal_estimate', {})
-                                est_advance = 0
-                                if est_data:
-                                    try:
-                                        gs = get_settings()
-                                        am_normalized = helpers.normalize_margins(est_data.get('margins'), gs)
-                                        calc_results = helpers.calculate_estimate_details(
-                                            edf_items_list=est_data.get('items', []),
-                                            days=est_data.get('days', 1.0),
-                                            margins=am_normalized,
-                                            global_settings=gs
-                                        )
-                                        est_advance = calc_results["rounded_grand_total"]
-                                    except: pass
-                                
-                                curr_pay = client.get('final_settlement_amount', 0.0)
-                                val_to_show = float(curr_pay) if curr_pay else float(est_advance)
-                                if pd.isna(val_to_show) or val_to_show == 0:
-                                    val_to_show = int(est_advance) if not pd.isna(est_advance) else 0
-                                else:
-                                    val_to_show = int(math.ceil(val_to_show / 100) * 100)
-                                
-                                payment_col1, payment_col2 = st.columns(2)
-                                with payment_col1:
-                                    st.metric("Estimated Grand Total", f"₹{est_advance:,.0f}")
-                                with payment_col2:
-                                    new_pay_key = f"pay_{client['id']}"
-                                    if new_pay_key not in st.session_state or (st.session_state[new_pay_key] == 0 and val_to_show > 0):
-                                        st.session_state[new_pay_key] = val_to_show
-                                    
-                                    new_pay = st.number_input("Final Amount Received (₹)", min_value=0, value=val_to_show, step=100, key=new_pay_key)
-                                
-                                if st.button("Save Final Payment", key=f"save_pay_{client['id']}"):
-                                    new_pay_rounded = int(math.ceil(new_pay / 100) * 100)
-                                    supabase.table("clients").update({"final_settlement_amount": new_pay_rounded}).eq("id", client['id']).execute()
-                                    st.toast("Payment Saved Successfully!", icon="✅")
-                                    time.sleep(1.0)
-                                    get_clients.clear()
-                                    st.rerun()
-
-                        st.expander("Danger Zone").button("Delete Client", type="secondary", use_container_width=True, on_click=lambda id=client['id']: (
-                            supabase.table("clients").delete().eq("id", id).execute()
-                        ), key=f"del_{client['id']}")
-                        
-                        if st.session_state.get(f"del_{client['id']}"):
-                             get_clients.clear()
-                             st.rerun()
-
-                        # Manage Estimate Section
-                        if client.get('internal_estimate'):
-                            st.divider()
-                            st.subheader("📋 Manage Estimate")
-                            est_data = client['internal_estimate']
-                            s_items_raw = est_data.get('items', [])
-                            s_days = float(est_data.get('days', 1.0))
-                            
-                            s_items_sanitized = []
-                            for item in s_items_raw:
-                                sanitized_item = item.copy()
-                                sanitized_item['Qty'] = float(sanitized_item.get('Qty', 0))
-                                sanitized_item['Base Rate'] = float(sanitized_item.get('Base Rate', 0))
-                                s_items_sanitized.append(sanitized_item)
-                            
-                            ssk_dash = f"dash_est_{client['id']}"
-                            if ssk_dash not in st.session_state:
-                                st.session_state[ssk_dash] = s_items_sanitized
-
-                            if st.session_state[ssk_dash]:
-                                idf = helpers.create_item_dataframe(st.session_state[ssk_dash])
-                                idf.insert(0, 'Sr No', range(1, len(idf) + 1))
-                                edited_est = st.data_editor(idf, num_rows="dynamic", use_container_width=True, key=f"de_{client['id']}",
-                                                            column_config={
-                                                                "Sr No": st.column_config.NumberColumn("Sr No", width="small", disabled=True),
-                                                                "Qty": st.column_config.NumberColumn("Qty", width="small", step=0.1),
-                                                                "Item": st.column_config.TextColumn("Item", width="large"),
-                                                                "Unit": st.column_config.TextColumn("Unit", width="small", disabled=True),
-                                                                "Base Rate": st.column_config.NumberColumn("Base Rate", width="small"),
-                                                                "Unit Price": st.column_config.NumberColumn("Unit Price", format="₹%.2f", width="small", disabled=True),
-                                                                "Total Price": st.column_config.NumberColumn("Total Price", format="₹%.2f", width="small", disabled=True)
-                                                            })
-                                
-                                gs = get_settings()
-                                am_normalized = helpers.normalize_margins(est_data.get('margins'), gs)
-                                
-                                calculated_results = helpers.calculate_estimate_details(
-                                    edf_items_list=edited_est.to_dict(orient="records"),
-                                    days=s_days,
-                                    margins=am_normalized,
-                                    global_settings=gs
-                                )
-                                
-                                mat_sell = calculated_results["mat_sell"]
-                                labor_charged_display = calculated_results["disp_lt"]
-                                rounded_grand_total = calculated_results["rounded_grand_total"]
-                                total_profit = calculated_results["total_profit"]
-                                advance_amount = calculated_results["advance_amount"]
-                                edited_est_with_prices = calculated_results["edf_details_df"]
-                                
-                                m1, m2, m3, m4, m5 = st.columns(5)
-                                m1.metric("Material Total", f"₹{mat_sell:,.0f}"); m2.metric("Labor", f"₹{labor_charged_display:,.0f}"); m3.metric("Grand Total", f"₹{rounded_grand_total:,.0f}"); m4.metric("Total Profit", f"₹{total_profit:,.0f}"); m5.metric("Advance Required", f"₹{advance_amount:,.0f}")
-                                
-                                if st.button("💾 Save Estimate Changes", key=f"sv_{client['id']}"):
-                                    df_to_save = edited_est_with_prices.copy()
-                                    for col in ['Qty', 'Base Rate', 'Total Price', "Unit Price"]:
-                                        df_to_save[col] = pd.to_numeric(df_to_save[col].fillna(0))
                                     for col in ['Item', 'Unit']: df_to_save[col] = df_to_save[col].fillna("")
                                     
                                     st.dataframe(df_profit[['Item', 'Qty', 'Unit', 'Base Rate', 'Total Sell Price', 'Row Profit']], use_container_width=True, hide_index=True)
@@ -594,114 +493,141 @@ with tab3:
         ssk = f"est_{tc['id']}"
         if ssk not in st.session_state: st.session_state[ssk] = li
 
-        st.divider(); gs = get_settings()
-        col1, col2 = st.columns([1, 3])
-        with col1:
-            uc = st.checkbox("🛠️ Use Custom Margins", value=(sm is not None), key="cm")
-        with col2:
-            dys = st.number_input("⏳ Days", min_value=1, step=1, value=int(sd))
-        am = gs
-        if uc:
-            dp, dl, de = (int(sm['p']), int(sm['l']), int(sm['e'])) if sm else (int(gs['part_margin']), int(gs['labor_margin']), int(gs['extra_margin']))
-            mc1, mc2, mc3 = st.columns(3)
-            cp, cl, ce = mc1.slider("Part %", 0, 100, dp, key="cp"), mc2.slider("Labor %", 0, 100, dl, key="cl"), mc3.slider("Extra %", 0, 100, de, key="ce")
-            am = {'part_margin': cp, 'labor_margin': cl, 'extra_margin': ce}
+    if tn:
+        tc = cd[tn]
+        se, li = tc.get('internal_estimate'), []
+        if se: li = se.get('items', [])
+        sm = se.get('margins') if se else None
+        sd = se.get('days', 1.0) if se else 1.0
+        ssk = f"est_{tc['id']}"
+        if ssk not in st.session_state: st.session_state[ssk] = li
 
-        st.divider()
-
-        # Step A: Fetch Stock Data
-        try:
-            inv_all_items_response = get_inventory()
-        except Exception as e:
-            st.error(f"Database Error: {e}")
-            inv_all_items_response = None
-        stock_map = {}
-        if inv_all_items_response and inv_all_items_response.data:
-            stock_map = {item['item_name']: item.get('stock_quantity', 0.0) for item in inv_all_items_response.data}
-            
-        inv = inv_all_items_response
-        if inv and inv.data:
-            imap = {i['item_name']: i for i in inv.data}
-            
-            # --- FIX: Move Item Selection OUTSIDE form for dynamic updates ---
-            inam = st.selectbox("Select Item to Add", list(imap.keys()), key="est_item_selector")
-            
-            selected_item_data = imap.get(inam, {})
-            db_unit = selected_item_data.get('unit', 'pcs')
-            
-            # Dynamic Unit Logic
-            if db_unit == 'pcs':
-                unit_opts = ['pcs']
-                unit_disabled = True
-                unit_index = 0
-            else:
-                unit_opts = ['m', 'ft', 'cm', 'in']
-                unit_disabled = False
-                try:
-                    unit_index = unit_opts.index(db_unit)
-                except ValueError:
-                    unit_index = 0 # Default to first if db_unit not in list (e.g. if it was 'kg' but we only support length)
-
-            with st.form("add_est"):
-                c1, c2, c3 = st.columns([1, 1, 1])
-                
-                step_val = 1.0 if db_unit == "pcs" else 0.1
-                
-                iqty = c1.number_input("Qty", min_value=0.1, step=step_val)
-                iunit = c2.selectbox("Unit", unit_opts, index=unit_index, disabled=unit_disabled)
-                
-                # Add Button (aligned with inputs)
-                # Using a container to push button down to align with inputs if needed, or just standard
-                if c3.form_submit_button("⬇️ Add Item"):
-                    st.session_state[ssk].append({
-                        "Item": inam, 
-                        "Qty": iqty, 
-                        "Base Rate": selected_item_data.get('base_rate', 0), 
-                        "Unit": iunit
-                    })
-                    st.rerun()
-
-        if st.session_state[ssk]:
-            df = helpers.create_item_dataframe(st.session_state[ssk])
-            df.insert(0, 'Sr No', range(1, len(df) + 1))
-
-            st.write("#### Items")
-            edf = st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"t_{tc['id']}", 
-                column_config={
-                    "Sr No": st.column_config.NumberColumn("Sr No", width="small", disabled=True),
-                    "Qty": st.column_config.NumberColumn("Qty", width="small", step=0.1), # Allow float generally, restricted at input
-                    "Item": st.column_config.TextColumn("Item", width="large"),
-                    "Unit": st.column_config.TextColumn("Unit", width="small", disabled=True),
-                    "Base Rate": st.column_config.NumberColumn("Base Rate", width="small"),
-                    "Unit Price": st.column_config.NumberColumn("Unit Price", format="₹%.2f", width="small", disabled=True),
-                    "Total Price": st.column_config.NumberColumn("Total Price", format="₹%.2f", width="small", disabled=True)
-                })
-            
-            # Enforce float types for calculation consistency early
-            edf['Qty'] = pd.to_numeric(edf['Qty'], errors='coerce').fillna(0).astype(float)
-            edf['Base Rate'] = pd.to_numeric(edf['Base Rate'], errors='coerce').fillna(0).astype(float)
-
-            # --- Universal Calculation Logic ---
+        # --- SECTION 1: PROJECT SETTINGS ---
+        with st.container(border=True):
+            st.markdown("### 🛠️ Project Settings")
             gs = get_settings()
-            am_for_calc = am  # Use the margins already set above
+            
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                uc = st.checkbox("Use Custom Margins", value=(sm is not None), key="cm")
+            with col2:
+                dys = st.number_input("⏳ Labor Days", min_value=1, step=1, value=int(sd))
+            
+            am = gs
+            if uc:
+                dp, dl, de = (int(sm['p']), int(sm['l']), int(sm['e'])) if sm else (int(gs['part_margin']), int(gs['labor_margin']), int(gs['extra_margin']))
+                st.write("**Profit Margins (%)**")
+                mc1, mc2, mc3 = st.columns(3)
+                cp = mc1.slider("Parts", 0, 100, dp, key="cp")
+                cl = mc2.slider("Labor", 0, 100, dl, key="cl")
+                ce = mc3.slider("Extra", 0, 100, de, key="ce")
+                am = {'part_margin': cp, 'labor_margin': cl, 'extra_margin': ce}
+
+        # --- SECTION 2: ADD MATERIALS ---
+        with st.container(border=True):
+            st.markdown("### 📦 Add Materials")
+            # Step A: Fetch Stock Data
+            try:
+                inv_all_items_response = get_inventory()
+            except Exception as e:
+                st.error(f"Database Error: {e}")
+                inv_all_items_response = None
+            stock_map = {}
+            if inv_all_items_response and inv_all_items_response.data:
+                stock_map = {item['item_name']: item.get('stock_quantity', 0.0) for item in inv_all_items_response.data}
+                
+            inv = inv_all_items_response
+            if inv and inv.data:
+                imap = {i['item_name']: i for i in inv.data}
+                
+                # Item Selection
+                inam = st.selectbox("Select Item to Add", list(imap.keys()), key="est_item_selector", label_visibility="collapsed", placeholder="Choose an item...")
+                
+                selected_item_data = imap.get(inam, {})
+                db_unit = selected_item_data.get('unit', 'pcs')
+                
+                # Dynamic Unit Logic
+                step_val = 0.1
+                min_val = 0.1
+                init_val = 0.0
+                
+                if db_unit == 'pcs':
+                    unit_opts = ['pcs']
+                    unit_disabled = True
+                    unit_index = 0
+                    # Strict Integers
+                    step_val = 1
+                    min_val = 1
+                    init_val = 1
+                else:
+                    unit_opts = ['m', 'ft', 'cm', 'in']
+                    unit_disabled = False
+                    try:
+                        unit_index = unit_opts.index(db_unit)
+                    except ValueError:
+                        unit_index = 0
+
+                with st.form("add_est"):
+                    # ALIGNMENT FIX: Use vertical_alignment="bottom"
+                    c1, c2, c3 = st.columns([1, 1, 1], vertical_alignment="bottom")
+                    
+                    iqty = c1.number_input("Qty", min_value=min_val, step=step_val, value=init_val)
+                    iunit = c2.selectbox("Unit", unit_opts, index=unit_index, disabled=unit_disabled)
+                    
+                    if c3.form_submit_button("⬇️ Add to Estimate", type="primary", use_container_width=True):
+                        st.session_state[ssk].append({
+                            "Item": inam, 
+                            "Qty": iqty, 
+                            "Base Rate": selected_item_data.get('base_rate', 0), 
+                            "Unit": iunit
+                        })
+                        st.rerun()
+
+            if st.session_state[ssk]:
+                # Items Table (No container, looks better flush)
+                df = helpers.create_item_dataframe(st.session_state[ssk])
+                df.insert(0, 'Sr No', range(1, len(df) + 1))
+
+                st.write("#### Itemized List")
+                edf = st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"t_{tc['id']}", 
+                    column_config={
+                        "Sr No": st.column_config.NumberColumn("Sr No", width="small", disabled=True),
+                        "Qty": st.column_config.NumberColumn("Qty", width="small", step=0.1),
+                        "Item": st.column_config.TextColumn("Item", width="large"),
+                        "Unit": st.column_config.TextColumn("Unit", width="small", disabled=True),
+                        "Base Rate": st.column_config.NumberColumn("Base Rate", width="small"),
+                        "Unit Price": st.column_config.NumberColumn("Unit Price", format="₹%.2f", width="small", disabled=True),
+                        "Total Price": st.column_config.NumberColumn("Total Price", format="₹%.2f", width="small", disabled=True)
+                    })
+                
+                # Enforce float types
+                edf['Qty'] = pd.to_numeric(edf['Qty'], errors='coerce').fillna(0).astype(float)
+                edf['Base Rate'] = pd.to_numeric(edf['Base Rate'], errors='coerce').fillna(0).astype(float)
+
+                # --- Universal Calculation Logic ---
+                gs = get_settings()
+                am_for_calc = am
+
+            # Dynamic Labor Cost Logic (from previous task)
+            assigned_ids = tc.get('assigned_staff') or []
+            override_labor = calculate_labor_from_assignments(assigned_ids)
 
             calculated_results = helpers.calculate_estimate_details(
                 edf_items_list=edf.to_dict(orient="records"),
                 days=dys,
                 margins=am_for_calc,
-                global_settings=gs
+                global_settings=gs,
+                daily_labor_override=override_labor
             )
 
             edf['Total Price'] = edf.apply(lambda row: calculated_results["edf_details_df"].loc[row.name, 'Total Price'] if row.name in calculated_results["edf_details_df"].index else 0, axis=1)
             edf['Unit Price'] = edf.apply(lambda row: calculated_results["edf_details_df"].loc[row.name, 'Unit Price'] if row.name in calculated_results["edf_details_df"].index else 0, axis=1)
 
             mt = calculated_results["mat_sell"]
-            daily_cost = float(gs.get('daily_labor_cost', 1000))
-            raw_lt = calculated_results["labor_actual_cost"]
+            disp_lt = calculated_results["disp_lt"]
             rounded_gt = calculated_results["rounded_grand_total"]
             total_profit = calculated_results["total_profit"]
             advance_amount = calculated_results["advance_amount"]
-            disp_lt = calculated_results["disp_lt"]
 
             # Sync logic
             if edf.to_dict(orient="records") != st.session_state[ssk]:
@@ -728,32 +654,38 @@ with tab3:
                     st.session_state['restock_queue'] = restock_data
                     st.toast("Items added to Restock Queue! Go to Suppliers tab.", icon="📦")
             
-            # --- End Stock Check Alert System ---
-
-            # Update dataframe with calculated prices from helper function
+            # Update dataframe with calculated prices
             edf = calculated_results["edf_details_df"].copy()
 
-            st.divider()
-            c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("Material", f"₹{mt:,.0f}"); c2.metric("Labor", f"₹{disp_lt:,.0f}"); c3.metric("Grand Total", f"₹{rounded_gt:,.0f}"); c4.metric("Total Profit", f"₹{total_profit:,.0f}"); c5.metric("Advance Required", f"₹{advance_amount:,.0f}")
-            
-            cs, cp = st.columns(2)
-            if cs.button("💾 Save", type="primary"):
-                df_to_save = edf.copy()
-                for col in ['Qty', 'Base Rate', 'Total Price', "Unit Price"]:
-                    df_to_save[col] = pd.to_numeric(df_to_save[col].fillna(0))
-                for col in ['Item', 'Unit']: df_to_save[col] = df_to_save[col].fillna("")
-                cit = df_to_save.to_dict(orient="records")
-                sobj = {"items": cit, "days": dys, "margins": am if uc else None}
-                try:
-                    res = supabase.table("clients").update({"internal_estimate": sobj}).eq("id", tc['id']).execute()
-                    if res and res.data: st.toast("Saved!", icon="✅")
-                except Exception as e:
-                    st.error(f"Database Error: {e}")
-            
-            pbytes = create_pdf(tc['name'], edf.to_dict(orient="records"), dys, disp_lt, rounded_gt, advance_amount, is_final=False)
-            sanitized_est_name = sanitize_filename(tc['name'])
-            cp.download_button("📄 Download PDF", pbytes, f"Est_{sanitized_est_name}.pdf", "application/pdf", key=f"pe_{tc['id']}")
+            # --- SECTION 3: FINANCIAL OVERVIEW ---
+            with st.container(border=True):
+                st.markdown("### 💰 Financial Overview")
+                c1, c2, c3, c4, c5 = st.columns(5)
+                c1.metric("Material", f"₹{mt:,.0f}")
+                c2.metric("Labor/Day", f"₹{override_labor:,.0f}" if override_labor > 0 else f"₹{float(gs.get('daily_labor_cost', 1000)):,.0f} (Def)")
+                c3.metric("Grand Total", f"₹{rounded_gt:,.0f}")
+                c4.metric("Total Profit", f"₹{total_profit:,.0f}")
+                c5.metric("Advance Required", f"₹{advance_amount:,.0f}")
+                
+                st.divider()
+                
+                cs, cp = st.columns(2)
+                if cs.button("💾 Save Estimate", type="primary", use_container_width=True):
+                    df_to_save = edf.copy()
+                    for col in ['Qty', 'Base Rate', 'Total Price', "Unit Price"]:
+                        df_to_save[col] = pd.to_numeric(df_to_save[col].fillna(0))
+                    for col in ['Item', 'Unit']: df_to_save[col] = df_to_save[col].fillna("")
+                    cit = df_to_save.to_dict(orient="records")
+                    sobj = {"items": cit, "days": dys, "margins": am if uc else None}
+                    try:
+                        res = supabase.table("clients").update({"internal_estimate": sobj}).eq("id", tc['id']).execute()
+                        if res and res.data: st.toast("Saved!", icon="✅")
+                    except Exception as e:
+                        st.error(f"Database Error: {e}")
+                
+                pbytes = create_pdf(tc['name'], edf.to_dict(orient="records"), dys, disp_lt, rounded_gt, advance_amount, is_final=False)
+                sanitized_est_name = sanitize_filename(tc['name'])
+                cp.download_button("📄 Download PDF", pbytes, f"Est_{sanitized_est_name}.pdf", "application/pdf", key=f"pe_{tc['id']}", use_container_width=True)
 # --- TAB 4: INVENTORY ---
 with tab_inv:
     st.subheader("📦 Inventory Management")
@@ -1218,11 +1150,30 @@ with tab8:
                             st_opts = ["Available", "On Site", "On Leave", "Busy"]
                             u_stats = st.selectbox("Current Status", st_opts, index=st_opts.index(current_status) if current_status in st_opts else 0, label_visibility="collapsed")
                             
+                            # Client Assignment Logic
+                            sel_client_id = None
+                            if u_stats == "On Site":
+                                try:
+                                    # Fetch active clients for dropdown
+                                    cli_res = supabase.table("clients").select("id, name").neq("status", "Closed").neq("status", "Work Done").execute()
+                                    if cli_res and cli_res.data:
+                                        cli_dict = {c['name']: c['id'] for c in cli_res.data}
+                                        # Determine current assignment if any
+                                        curr_cli_name = staff_assignment_map.get(staff['id'])
+                                        def_idx = list(cli_dict.keys()).index(curr_cli_name) if curr_cli_name in cli_dict else 0
+                                        
+                                        sel_cli_name = st.selectbox("Select Site/Client", list(cli_dict.keys()), index=def_idx)
+                                        sel_client_id = cli_dict[sel_cli_name]
+                                    else:
+                                        st.warning("No active clients found to assign.")
+                                except: pass
+
                             st.divider()
                             
                             col_s, col_d = st.columns([1,1])
                             if col_s.form_submit_button("✅ Save Changes", type="primary"):
                                try:
+                                   # 1. Update Staff Details
                                    supabase.table("staff").update({
                                        "name": u_name,
                                        "role": u_role,
@@ -1230,10 +1181,33 @@ with tab8:
                                        "salary": u_wage,
                                        "status": u_stats
                                    }).eq("id", staff['id']).execute()
+                                   
+                                   # 2. Handle Client Assignment
+                                   # First, removing this staff from ALL clients to ensure no duplicates/stale data
+                                   # Note: efficient way depends on DB, but iterating fetch is safer for consistency here
+                                   all_active_res = supabase.table("clients").select("id, assigned_staff").neq("status", "Closed").execute()
+                                   if all_active_res and all_active_res.data:
+                                       for cli in all_active_res.data:
+                                           curr_staff = cli.get('assigned_staff') or []
+                                           if staff['id'] in curr_staff:
+                                               curr_staff.remove(staff['id'])
+                                               supabase.table("clients").update({"assigned_staff": curr_staff}).eq("id", cli['id']).execute()
+                                   
+                                   # 3. If On Site and Client Selected, Add to New Client
+                                   if u_stats == "On Site" and sel_client_id:
+                                       # Fetch specific client to get fresh list
+                                       target_cli_res = supabase.table("clients").select("assigned_staff").eq("id", sel_client_id).execute()
+                                       if target_cli_res and target_cli_res.data:
+                                           new_list = target_cli_res.data[0].get('assigned_staff') or []
+                                           if staff['id'] not in new_list:
+                                               new_list.append(staff['id'])
+                                               supabase.table("clients").update({"assigned_staff": new_list}).eq("id", sel_client_id).execute()
+
                                    st.session_state[exp_key] = False # Collapse on success
                                    st.toast("Updated!", icon="✅")
                                    time.sleep(0.5)
                                    get_staff.clear()
+                                   get_clients.clear() # Clear client cache too
                                    st.rerun()
                                except Exception as e:
                                    st.error(f"Error: {e}")

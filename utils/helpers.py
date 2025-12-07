@@ -170,7 +170,7 @@ def get_advance_percentage(settings):
     return float(settings.get('advance_percentage', 10.0))
 
 
-def calculate_estimate_details(edf_items_list, days, margins, global_settings):
+def calculate_estimate_details(edf_items_list, days, margins, global_settings, daily_labor_override=0.0):
     """
     Calculates various financial details for an estimate.
     CENTRALIZED calculation - ensures consistency across all tabs.
@@ -180,6 +180,7 @@ def calculate_estimate_details(edf_items_list, days, margins, global_settings):
         days (float): The number of labor days for the estimate.
         margins (dict): A dictionary of margins to apply to the estimate.
         global_settings (dict): A dictionary of global settings.
+        daily_labor_override (float): Optional override for daily labor cost (e.g. sum of assigned staff wages).
 
     Returns:
         dict: A dictionary containing the calculated financial details.
@@ -207,7 +208,12 @@ def calculate_estimate_details(edf_items_list, days, margins, global_settings):
     else:
         mat_sell = 0.0
 
-    daily_labor_cost = float(global_settings.get('daily_labor_cost', 1000.0))
+    # Determine Daily Labor Cost: specific override or global default
+    if daily_labor_override > 0:
+        daily_labor_cost = float(daily_labor_override)
+    else:
+        daily_labor_cost = float(global_settings.get('daily_labor_cost', 1000.0))
+        
     labor_actual_cost = float(days) * daily_labor_cost
 
     def calculate_item_base_cost(row):
